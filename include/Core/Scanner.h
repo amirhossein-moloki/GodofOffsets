@@ -1,5 +1,9 @@
 #pragma once
+
+#ifdef _WIN32
 #include <windows.h>
+#endif
+
 #include <vector>
 #include <string>
 #include <nlohmann/json.hpp>
@@ -25,11 +29,13 @@ public:
     std::vector<Signature> LoadSignatures(const std::string& filename);
     void Run(std::vector<Signature>& sigs, bool isVulkan = false);
 
-private:
+protected:
     const ProcessManager& m_pm;
     OffsetResolver m_resolver;
 
     uintptr_t ScanInternal(uintptr_t base, size_t size, const std::string& pattern);
+
+private:
     std::vector<uint8_t> ParsePattern(const std::string& pattern, std::vector<bool>& mask);
 };
 

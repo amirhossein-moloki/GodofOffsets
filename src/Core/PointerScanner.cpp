@@ -36,8 +36,10 @@ void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t max
             visited.insert(currentTarget);
 
             for (const auto& region : regions) {
+#ifdef _WIN32
                 if (!(region.protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)))
                     continue;
+#endif
 
                 const size_t chunkSize = 1024 * 64;
                 std::vector<uint8_t> buffer(chunkSize);
