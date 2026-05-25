@@ -1,30 +1,30 @@
 #pragma once
-#include "imgui.h"
-#include "Core/ProcessManager.h"
-#include "Core/MemoryScanner.h"
-#include "Core/OffsetDumper.h"
 #include <vector>
+#include <string>
+#include "Core/MemoryManager.h"
+#include "Core/Scanner.h"
+#include "imgui.h"
 
 namespace UI {
 
 class AppUI {
 public:
-    AppUI(Core::ProcessManager& pm, Core::MemoryScanner& scanner, Core::OffsetDumper& dumper);
+    AppUI(Core::MemoryManager& mm, Core::Scanner& scanner);
     void Render();
 
 private:
-    Core::ProcessManager& m_pm;
-    Core::MemoryScanner& m_scanner;
-    Core::OffsetDumper& m_dumper;
+    Core::MemoryManager& m_mm;
+    Core::Scanner& m_scanner;
+    std::vector<Core::Signature> m_sigs;
 
-    void RenderProcessSelector();
-    void RenderScannerTab();
-    void RenderDumperTab();
+    char m_processName[64] = "RainbowSix.exe";
+    bool m_isAttached = false;
+    std::string m_status = "Ready";
 
-    std::vector<Core::ProcessInfo> m_processes;
-    int m_selectedProcessIdx = -1;
-
-    char m_searchBuffer[256] = "";
+    void RenderHeader();
+    void RenderControls();
+    void RenderResultsTable();
+    void ExportToHeader();
 };
 
 } // namespace UI

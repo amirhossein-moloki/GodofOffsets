@@ -1,90 +1,108 @@
 #include "UI/AppUI.h"
-#include <string>
+#include <fstream>
+#include <iomanip>
 
 namespace UI {
 
-AppUI::AppUI(Core::ProcessManager& pm, Core::MemoryScanner& scanner, Core::OffsetDumper& dumper)
-    : m_pm(pm), m_scanner(scanner), m_dumper(dumper) {
-    m_processes = Core::ProcessManager::GetProcessList();
+AppUI::AppUI(Core::MemoryManager& mm, Core::Scanner& scanner)
+    : m_mm(mm), m_scanner(scanner) {
+    m_sigs = m_scanner.LoadSignatures("signatures.json");
 }
 
 void AppUI::Render() {
-    RenderProcessSelector();
-    RenderScannerTab();
-    RenderDumperTab();
-}
+    ImGui::Begin("R6 Professional Offset Dumper");
 
-void AppUI::RenderProcessSelector() {
-    ImGui::Begin("Process Selector");
-    if (ImGui::Button("Refresh")) {
-        m_processes = Core::ProcessManager::GetProcessList();
-    }
-
-    if (ImGui::BeginListBox("##processes", ImVec2(-FLT_MIN, -FLT_MIN))) {
-        for (int i = 0; i < (int)m_processes.size(); i++) {
-            const bool is_selected = (m_selectedProcessIdx == i);
-            std::string label = std::to_string(m_processes[i].pid) + " - " + m_processes[i].name;
-            if (ImGui::Selectable(label.c_str(), is_selected)) {
-                m_selectedProcessIdx = i;
-                m_pm.Attach(m_processes[i].pid);
-            }
-            if (is_selected) ImGui::SetItemDefaultFocus();
-        }
-        ImGui::EndListBox();
-    }
-    ImGui::End();
-}
-
-void AppUI::RenderScannerTab() {
-    ImGui::Begin("Scanner");
-    if (!m_pm.IsAttached()) {
-        ImGui::Text("Attach to a process first.");
-        ImGui::End();
-        return;
-    }
-
-    ImGui::InputText("Value", m_searchBuffer, sizeof(m_searchBuffer));
-
-    if (ImGui::Button("First Scan")) {
-        Core::ScanValue val;
-        val.type = Core::DataType::Int32;
-        try {
-            val.value = std::stoi(m_searchBuffer);
-            m_scanner.FirstScan(val, Core::ScanType::ExactValue);
-        } catch (...) {}
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Next Scan")) {
-        Core::ScanValue val;
-        val.type = Core::DataType::Int32;
-        try {
-            val.value = std::stoi(m_searchBuffer);
-            m_scanner.NextScan(val, Core::ScanType::ExactValue);
-        } catch (...) {}
-    }
-
+    RenderHeader();
     ImGui::Separator();
-    ImGui::Text("Results: %zu", m_scanner.GetResults().size());
-
-    if (ImGui::BeginListBox("##results", ImVec2(-FLT_MIN, -FLT_MIN))) {
-        const auto& results = m_scanner.GetResults();
-        for (size_t i = 0; i < (std::min)(results.size(), (size_t)1000); i++) {
-            char addrStr[32];
-            sprintf(addrStr, "0x%p", (void*)results[i]);
-            ImGui::Selectable(addrStr);
-        }
-        ImGui::EndListBox();
-    }
+    RenderControls();
+    ImGui::Separator();
+    RenderResultsTable();
 
     ImGui::End();
 }
 
-void AppUI::RenderDumperTab() {
-    ImGui::Begin("Dumper");
-    if (ImGui::Button("Dump Base Module")) {
-        // Dump logic
+void AppUI::RenderHeader() {
+    ImGui::TextColored(ImVec4(1, 1, 0, 1), "SECURITY WARNING: RESEARCH USE ONLY");
+    ImGui::Text("Status: %s", m_status.c_str());
+}
+
+void AppUI::RenderControls() {
+    ImGui::InputText("Process Name", m_processName, sizeof(m_processName));
+
+    if (ImGui::Button("Attach (Standard)")) {
+        if (m_mm.Attach(m_processName, Core::MemoryMode::Standard)) {
+            m_isAttached = true;
+            m_status = "Attached (Standard)";
+        } else {
+            m_status = "Failed to Attach";
+        }
     }
-    ImGui::End();
+
+    ImGui::SameLine();
+
+    if (ImGui::Button("Attach (Stealth/VDM)")) {
+        if (m_mm.Attach(m_processName, Core::MemoryMode::Stealth)) {
+            m_isAttached = true;
+            m_status = "Attached (Stealth Mode)";
+        } else {
+            m_status = "Failed to Attach Stealth";
+        }
+    }
+
+    if (m_isAttached) {
+        if (ImGui::Button("Run Scanner")) {
+            m_status = "Scanning...";
+            bool isVulkan = (std::string(m_processName).find("Vulkan") != std::string::npos);
+            m_scanner.Run(m_sigs, isVulkan);
+            m_status = "Scan Complete";
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Export offsets.h")) {
+            ExportToHeader();
+            m_status = "Exported to offsets.h";
+        }
+    }
+}
+
+void AppUI::RenderResultsTable() {
+    if (ImGui::BeginTable("results", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Address");
+        ImGui::TableSetupColumn("Offset");
+        ImGui::TableHeadersRow();
+
+        for (const auto& sig : m_sigs) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%s", sig.name.c_str());
+
+            ImGui::TableSetColumnIndex(1);
+            if (sig.result) {
+                ImGui::Text("0x%llX", sig.result);
+
+                ImGui::TableSetColumnIndex(2);
+                uintptr_t base = m_mm.GetModuleBase(sig.moduleName);
+                ImGui::Text("0x%llX", sig.result - base);
+            } else {
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Not Found");
+            }
+        }
+        ImGui::EndTable();
+    }
+}
+
+void AppUI::ExportToHeader() {
+    std::ofstream f("offsets.h");
+    f << "#pragma once\n\n";
+    f << "namespace Offsets {\n";
+    for (const auto& sig : m_sigs) {
+        if (sig.result) {
+            uintptr_t base = m_mm.GetModuleBase(sig.moduleName);
+            f << "    constexpr unsigned long long " << sig.name << " = 0x"
+              << std::hex << std::uppercase << (sig.result - base) << ";\n";
+        }
+    }
+    f << "}\n";
 }
 
 } // namespace UI
