@@ -7,7 +7,7 @@
 
 namespace Core {
 
-Scanner::Scanner(const MemoryManager& mm) : m_mm(mm), m_resolver(mm) {}
+Scanner::Scanner(const ProcessManager& pm) : m_pm(pm), m_resolver(pm) {}
 
 std::vector<uint8_t> Scanner::ParsePattern(const std::string& pattern, std::vector<bool>& mask) {
     std::vector<uint8_t> bytes;
@@ -18,8 +18,12 @@ std::vector<uint8_t> Scanner::ParsePattern(const std::string& pattern, std::vect
             bytes.push_back(0);
             mask.push_back(false);
         } else {
-            bytes.push_back((uint8_t)std::stoul(item, nullptr, 16));
-            mask.push_back(true);
+            try {
+                bytes.push_back((uint8_t)std::stoul(item, nullptr, 16));
+                mask.push_back(true);
+            } catch (...) {
+                continue;
+            }
         }
     }
     return bytes;
@@ -30,9 +34,8 @@ uintptr_t Scanner::ScanInternal(uintptr_t base, size_t size, const std::string& 
     auto patternBytes = ParsePattern(pattern, mask);
     if (patternBytes.empty()) return 0;
 
-    // Buffer Chunking: Read the entire module memory into a local buffer
     std::vector<uint8_t> moduleBuffer(size);
-    if (!m_mm.ReadRaw(base, moduleBuffer.data(), size)) return 0;
+    if (!m_pm.ReadMemory(base, moduleBuffer.data(), size)) return 0;
 
     for (size_t i = 0; i <= size - patternBytes.size(); ++i) {
         bool found = true;
@@ -48,12 +51,10 @@ uintptr_t Scanner::ScanInternal(uintptr_t base, size_t size, const std::string& 
 }
 
 uintptr_t Scanner::FindPattern(const std::string& moduleName, const std::string& pattern) {
-    uintptr_t base = m_mm.GetModuleBase(moduleName);
-    if (!base) return 0;
+    auto mod = m_pm.GetModuleInfo(moduleName);
+    if (mod.baseAddress == 0) return 0;
 
-    // In a real scenario, we'd get the actual image size from PE headers
-    // For this implementation, we assume a reasonable size or use GetModuleInformation
-    return ScanInternal(base, 0x10000000, pattern); // Default 256MB scan range for simplicity
+    return ScanInternal(mod.baseAddress, mod.imageSize, pattern);
 }
 
 std::vector<Signature> Scanner::LoadSignatures(const std::string& filename) {
@@ -80,12 +81,11 @@ void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
     std::vector<std::future<void>> futures;
 
     for (auto& sig : sigs) {
-        // Adjust module name if Vulkan is detected
         if (isVulkan && sig.moduleName == "RainbowSix.exe") {
             sig.moduleName = "RainbowSix_Vulkan.exe";
         }
 
-        futures.push_back(std::async(std::launch::async, [&]() {
+        futures.push_back(std::async(std::launch::async, [this, &sig]() {
             uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
             if (addr) {
                 addr += sig.offset;

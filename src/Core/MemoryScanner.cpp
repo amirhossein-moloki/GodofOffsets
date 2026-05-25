@@ -5,18 +5,41 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <cstring>
+#include <bit>
+#include <future>
 
 namespace Core {
 
 MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm) {}
 
 void MemoryScanner::Reset() {
+    std::lock_guard<std::mutex> lock(m_resultsMutex);
     m_results.clear();
+    while (!m_history.empty()) m_history.pop();
     m_progress = 0.0f;
+}
+
+void MemoryScanner::Undo() {
+    std::lock_guard<std::mutex> lock(m_resultsMutex);
+    if (!m_history.empty()) {
+        m_results = m_history.top();
+        m_history.pop();
+    }
 }
 
 void MemoryScanner::Cancel() {
     m_cancelRequested = true;
+}
+
+std::vector<uintptr_t> MemoryScanner::GetResults() {
+    std::lock_guard<std::mutex> lock(m_resultsMutex);
+    return m_results;
+}
+
+size_t MemoryScanner::GetResultCount() {
+    std::lock_guard<std::mutex> lock(m_resultsMutex);
+    return m_results.size();
 }
 
 static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
@@ -33,80 +56,108 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
 }
 
 void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
-    m_isScanning = true;
-    m_cancelRequested = false;
-    m_results.clear();
+    if (m_isScanning) return;
 
-    auto regions = m_pm.GetRegions();
-    size_t totalSize = 0;
-    for (const auto& r : regions) totalSize += r.size;
+    std::thread([this, val, scanType]() {
+        m_isScanning = true;
+        m_cancelRequested = false;
 
-    std::mutex resultsMutex;
-    size_t scannedSize = 0;
-
-    std::vector<std::thread> threads;
-    unsigned int numThreads = std::thread::hardware_concurrency();
-    if (numThreads == 0) numThreads = 1;
-
-    for (size_t i = 0; i < regions.size(); ++i) {
-        if (m_cancelRequested) break;
-
-        const auto& region = regions[i];
-
-        // Simple thread pool approach for regions
-        threads.push_back(std::thread([this, &region, &val, scanType, &resultsMutex, &scannedSize, totalSize]() {
-            std::vector<uintptr_t> localResults;
-            if (val.type == DataType::AOB) {
-                localResults = AOBScan(region, std::get<std::string>(val.value));
-            } else {
-                ScanRegion(region, val, scanType, localResults);
+        {
+            std::lock_guard<std::mutex> lock(m_resultsMutex);
+            if (!m_results.empty()) {
+                m_history.push(m_results);
             }
-
-            std::lock_guard<std::mutex> lock(resultsMutex);
-            m_results.insert(m_results.end(), localResults.begin(), localResults.end());
-            scannedSize += region.size;
-            m_progress = (float)scannedSize / totalSize;
-        }));
-
-        if (threads.size() >= numThreads) {
-            for (auto& t : threads) t.join();
-            threads.clear();
+            m_results.clear();
         }
-    }
-    for (auto& t : threads) t.join();
 
-    m_isScanning = false;
+        auto regions = m_pm.GetRegions();
+        size_t totalSize = 0;
+        for (const auto& r : regions) totalSize += r.size;
+
+        std::mutex localResultsMutex;
+        std::vector<uintptr_t> allResults;
+        size_t scannedSize = 0;
+
+        std::vector<std::thread> threads;
+        unsigned int numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 1;
+
+        for (size_t i = 0; i < regions.size(); ++i) {
+            if (m_cancelRequested) break;
+
+            const auto& region = regions[i];
+
+            threads.push_back(std::thread([this, region, val, scanType, &localResultsMutex, &allResults, &scannedSize, totalSize]() {
+                std::vector<uintptr_t> localResults;
+                if (val.type == DataType::AOB) {
+                    localResults = AOBScan(region, std::get<std::string>(val.value));
+                } else {
+                    ScanRegion(region, val, scanType, localResults);
+                }
+
+                std::lock_guard<std::mutex> lock(localResultsMutex);
+                allResults.insert(allResults.end(), localResults.begin(), localResults.end());
+                scannedSize += region.size;
+                m_progress = (float)scannedSize / totalSize;
+            }));
+
+            if (threads.size() >= numThreads) {
+                for (auto& t : threads) t.join();
+                threads.clear();
+            }
+        }
+        for (auto& t : threads) t.join();
+
+        {
+            std::lock_guard<std::mutex> lock(m_resultsMutex);
+            m_results = std::move(allResults);
+        }
+        m_isScanning = false;
+    }).detach();
 }
 
 void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
-    if (m_results.empty()) return;
-    m_isScanning = true;
-    m_cancelRequested = false;
+    if (m_isScanning) return;
 
-    std::vector<uintptr_t> nextResults;
-    size_t total = m_results.size();
-    size_t step = 1000;
+    std::thread([this, val, scanType]() {
+        m_isScanning = true;
+        m_cancelRequested = false;
 
-    size_t typeSize = GetDataTypeSize(val.type, val);
+        std::vector<uintptr_t> currentResults;
+        {
+            std::lock_guard<std::mutex> lock(m_resultsMutex);
+            currentResults = m_results;
+            m_history.push(m_results);
+        }
 
-    for (size_t i = 0; i < total; i += step) {
-        if (m_cancelRequested) break;
+        std::vector<uintptr_t> nextResults;
+        size_t total = currentResults.size();
+        size_t step = 1000;
 
-        size_t end = (std::min)(i + step, total);
-        for (size_t j = i; j < end; ++j) {
-            uintptr_t addr = m_results[j];
-            std::vector<uint8_t> buffer(typeSize);
-            if (m_pm.ReadMemory(addr, buffer.data(), typeSize)) {
-                if (CompareValues(buffer.data(), val, scanType, typeSize)) {
-                    nextResults.push_back(addr);
+        size_t typeSize = GetDataTypeSize(val.type, val);
+
+        for (size_t i = 0; i < total; i += step) {
+            if (m_cancelRequested) break;
+
+            size_t end = (std::min)(i + step, total);
+            for (size_t j = i; j < end; ++j) {
+                uintptr_t addr = currentResults[j];
+                std::vector<uint8_t> buffer(typeSize);
+                if (m_pm.ReadMemory(addr, buffer.data(), typeSize)) {
+                    if (CompareValues(buffer.data(), val, scanType, typeSize)) {
+                        nextResults.push_back(addr);
+                    }
                 }
             }
+            m_progress = (float)i / total;
         }
-        m_progress = (float)i / total;
-    }
 
-    m_results = std::move(nextResults);
-    m_isScanning = false;
+        {
+            std::lock_guard<std::mutex> lock(m_resultsMutex);
+            m_results = std::move(nextResults);
+        }
+        m_isScanning = false;
+    }).detach();
 }
 
 void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults) {
@@ -115,17 +166,18 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
     size_t typeSize = GetDataTypeSize(val.type, val);
     if (typeSize == 0) return;
 
-    for (size_t offset = 0; offset < region.size; offset += bufferSize - typeSize) {
+    for (size_t offset = 0; offset < region.size; offset += (std::max)((size_t)1, bufferSize - typeSize)) {
         if (m_cancelRequested) break;
 
         size_t toRead = (std::min)(bufferSize, region.size - offset);
         if (!m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead)) continue;
 
-        for (size_t i = 0; i <= toRead - typeSize; ++i) {
+        for (size_t i = 0; i <= (toRead >= typeSize ? toRead - typeSize : 0); ++i) {
             if (CompareValues(buffer.data() + i, val, scanType, typeSize)) {
                 localResults.push_back(region.baseAddress + offset + i);
             }
         }
+        if (toRead < bufferSize) break;
     }
 }
 
@@ -163,9 +215,8 @@ bool MemoryScanner::CompareValues(const void* mem, const ScanValue& val, ScanTyp
 std::vector<uintptr_t> MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern) {
     std::vector<uintptr_t> results;
 
-    // Parse pattern
     std::vector<uint8_t> bytes;
-    std::vector<bool> mask; // true if byte is known, false if '?'
+    std::vector<bool> mask;
     std::stringstream ss(pattern);
     std::string item;
     while (ss >> item) {
@@ -183,41 +234,21 @@ std::vector<uintptr_t> MemoryScanner::AOBScan(const RegionInfo& region, const st
     const size_t bufferSize = 256 * 1024;
     std::vector<uint8_t> buffer(bufferSize);
 
-    for (size_t offset = 0; offset < region.size; offset += bufferSize - bytes.size()) {
+    for (size_t offset = 0; offset < region.size; offset += (std::max)((size_t)1, bufferSize - bytes.size())) {
         if (m_cancelRequested) break;
         size_t toRead = (std::min)(bufferSize, region.size - offset);
         if (!m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead)) continue;
 
-        // SIMD Optimization for AOB: Search for the first byte of the pattern
         if (mask[0]) {
             uint8_t firstByte = bytes[0];
             __m128i firstByteVec = _mm_set1_epi8(firstByte);
-
-            for (size_t i = 0; i <= toRead - bytes.size(); i += 16) {
-                if (m_cancelRequested) break;
-
-                size_t remaining = toRead - i;
-                if (remaining < 16) {
-                    // Fallback to scalar for end of buffer
-                    for (size_t j = i; j <= toRead - bytes.size(); ++j) {
-                        bool found = true;
-                        for (size_t k = 0; k < bytes.size(); ++k) {
-                            if (mask[k] && buffer[j + k] != bytes[k]) {
-                                found = false;
-                                break;
-                            }
-                        }
-                        if (found) results.push_back(region.baseAddress + offset + j);
-                    }
-                    break;
-                }
-
+            for (size_t i = 0; i <= (toRead >= 16 ? toRead - 16 : 0); i += 16) {
                 __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
                 __m128i cmp = _mm_cmpeq_epi8(data, firstByteVec);
                 int bitmask = _mm_movemask_epi8(cmp);
 
                 while (bitmask != 0) {
-                    int pos = __builtin_ctz(bitmask);
+                    int pos = std::countr_zero((unsigned int)bitmask);
                     if (i + pos <= toRead - bytes.size()) {
                         bool found = true;
                         for (size_t k = 1; k < bytes.size(); ++k) {
@@ -231,9 +262,21 @@ std::vector<uintptr_t> MemoryScanner::AOBScan(const RegionInfo& region, const st
                     bitmask &= ~(1 << pos);
                 }
             }
+            size_t start = (toRead >= 16 ? (toRead - 16) / 16 * 16 + 16 : 0);
+            for (size_t i = start; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
+                if (buffer[i] == firstByte) {
+                    bool found = true;
+                    for (size_t k = 1; k < bytes.size(); ++k) {
+                        if (mask[k] && buffer[i + k] != bytes[k]) {
+                            found = false;
+                            break;
+                        }
+                    }
+                    if (found) results.push_back(region.baseAddress + offset + i);
+                }
+            }
         } else {
-            // Scalar fallback if first byte is wildcard
-            for (size_t i = 0; i <= toRead - bytes.size(); ++i) {
+            for (size_t i = 0; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
                 bool found = true;
                 for (size_t k = 0; k < bytes.size(); ++k) {
                     if (mask[k] && buffer[i + k] != bytes[k]) {
@@ -244,6 +287,7 @@ std::vector<uintptr_t> MemoryScanner::AOBScan(const RegionInfo& region, const st
                 if (found) results.push_back(region.baseAddress + offset + i);
             }
         }
+        if (toRead < bufferSize) break;
     }
 
     return results;

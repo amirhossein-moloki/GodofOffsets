@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 #include <nlohmann/json.hpp>
-#include "Core/MemoryManager.h"
+#include "Core/ProcessManager.h"
 #include "Core/OffsetResolver.h"
 
 namespace Core {
@@ -19,14 +19,14 @@ struct Signature {
 
 class Scanner {
 public:
-    Scanner(const MemoryManager& mm);
+    Scanner(const ProcessManager& pm);
 
     uintptr_t FindPattern(const std::string& moduleName, const std::string& pattern);
     std::vector<Signature> LoadSignatures(const std::string& filename);
     void Run(std::vector<Signature>& sigs, bool isVulkan = false);
 
 private:
-    const MemoryManager& m_mm;
+    const ProcessManager& m_pm;
     OffsetResolver m_resolver;
 
     uintptr_t ScanInternal(uintptr_t base, size_t size, const std::string& pattern);

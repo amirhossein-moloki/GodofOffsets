@@ -4,14 +4,6 @@ project(UniversalOffsetDumper LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Cross-compilation settings for MinGW-w64
-if(NOT CMAKE_SYSTEM_NAME)
-    set(CMAKE_SYSTEM_NAME Windows)
-    set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)
-    set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
-    set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
-endif()
-
 include(FetchContent)
 
 # ImGui
@@ -42,7 +34,7 @@ include_directories(include)
 include_directories(${imgui_SOURCE_DIR})
 include_directories(${imgui_SOURCE_DIR}/backends)
 
-# Source files
+# Source files - Filter out tests
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 # Include ImGui implementation files
 set(IMGUI_SOURCES
@@ -59,7 +51,16 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(${PROJECT_NAME} PRIVATE Zydis)
-target_link_libraries(${PROJECT_NAME} PRIVATE d3d11 d3dcompiler dwmapi setupapi)
 
-# Static linking for a standalone EXE
-target_link_options(${PROJECT_NAME} PRIVATE -static -static-libgcc -static-libstdc++ -mwindows)
+if(WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE d3d11 d3dcompiler dwmapi setupapi)
+    if(MSVC)
+        target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS)
+    else()
+        target_link_options(${PROJECT_NAME} PRIVATE -static -static-libgcc -static-libstdc++ -mwindows)
+    endif()
+endif()
+
+# Tests
+add_executable(UnitTests tests/Tests.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
+target_link_libraries(UnitTests PRIVATE nlohmann_json::nlohmann_json Zydis)
