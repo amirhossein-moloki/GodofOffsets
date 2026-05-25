@@ -29,6 +29,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
+# Zydis
+FetchContent_Declare(
+    zydis
+    GIT_REPOSITORY https://github.com/zyantific/zydis.git
+    GIT_TAG        v4.0.0
+)
+FetchContent_MakeAvailable(zydis)
+
 # Add include directories
 include_directories(include)
 include_directories(${imgui_SOURCE_DIR})
@@ -50,6 +58,7 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(${PROJECT_NAME} PRIVATE Zydis)
 target_link_libraries(${PROJECT_NAME} PRIVATE d3d11 d3dcompiler dwmapi setupapi)
 
 # Static linking for a standalone EXE
