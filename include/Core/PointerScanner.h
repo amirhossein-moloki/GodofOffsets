@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <vector>
 #include <string>
+#include <atomic>
 #include "Core/ProcessManager.h"
 
 namespace Core {
@@ -16,10 +17,17 @@ class PointerScanner {
 public:
     PointerScanner(const ProcessManager& pm);
 
-    std::vector<PointerChain> Scan(uintptr_t targetAddress, int maxDepth, size_t maxOffset);
+    void StartScan(uintptr_t targetAddress, int maxDepth, size_t maxOffset);
+    std::vector<PointerChain> GetResults();
+    bool IsScanning() const { return m_isScanning; }
+    void Cancel() { m_cancelRequested = true; }
 
 private:
     const ProcessManager& m_pm;
+    std::vector<PointerChain> m_results;
+    std::atomic<bool> m_isScanning{false};
+    std::atomic<bool> m_cancelRequested{false};
+    std::mutex m_resultsMutex;
 };
 
 } // namespace Core

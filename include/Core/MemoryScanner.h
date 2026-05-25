@@ -5,6 +5,8 @@
 #include <variant>
 #include <atomic>
 #include <functional>
+#include <stack>
+#include <mutex>
 #include "Core/ProcessManager.h"
 
 namespace Core {
@@ -34,7 +36,7 @@ enum class DataType {
 struct ScanValue {
     DataType type;
     std::variant<int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t, float, double, std::string, std::vector<uint8_t>> value;
-    std::variant<int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t, float, double> value2; // For "Between" scan
+    std::variant<int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t, float, double> value2;
 };
 
 class MemoryScanner {
@@ -43,8 +45,10 @@ public:
 
     void FirstScan(const ScanValue& val, ScanType scanType);
     void NextScan(const ScanValue& val, ScanType scanType);
+    void Undo();
 
-    const std::vector<uintptr_t>& GetResults() const { return m_results; }
+    std::vector<uintptr_t> GetResults();
+    size_t GetResultCount();
     void Reset();
 
     bool IsScanning() const { return m_isScanning; }
@@ -54,6 +58,9 @@ public:
 private:
     const ProcessManager& m_pm;
     std::vector<uintptr_t> m_results;
+    std::stack<std::vector<uintptr_t>> m_history;
+    std::mutex m_resultsMutex;
+
     std::atomic<bool> m_isScanning{false};
     std::atomic<bool> m_cancelRequested{false};
     std::atomic<float> m_progress{0.0f};
@@ -61,7 +68,6 @@ private:
     void ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults);
     bool CompareValues(const void* mem, const ScanValue& val, ScanType scanType, size_t size);
 
-    // SIMD AOB Scan
     std::vector<uintptr_t> AOBScan(const RegionInfo& region, const std::string& pattern);
 };
 
