@@ -1,5 +1,13 @@
 #pragma once
+
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <cstdint>
+typedef void* HANDLE;
+#define INVALID_HANDLE_VALUE ((HANDLE)(intptr_t)-1)
+inline void CloseHandle(HANDLE) {}
+#endif
 
 namespace Utils {
 

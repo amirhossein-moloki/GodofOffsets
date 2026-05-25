@@ -1,5 +1,35 @@
 #pragma once
+
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <cstdint>
+#include <cstring>
+typedef uint32_t DWORD;
+typedef void* HANDLE;
+typedef uint8_t BYTE;
+typedef uint16_t WORD;
+typedef uint32_t UINT32;
+#define FALSE 0
+#define TRUE 1
+#define INVALID_HANDLE_VALUE ((HANDLE)(intptr_t)-1)
+
+typedef struct _MEMORY_BASIC_INFORMATION {
+    void* BaseAddress;
+    void* AllocationBase;
+    DWORD AllocationProtect;
+    size_t RegionSize;
+    DWORD State;
+    DWORD Protect;
+    DWORD Type;
+} MEMORY_BASIC_INFORMATION, *PMEMORY_BASIC_INFORMATION;
+
+#define MEM_COMMIT 0x1000
+#define PAGE_NOACCESS 0x01
+#define PAGE_GUARD 0x100
+
+#endif
+
 #include <vector>
 #include <string>
 #include <memory>

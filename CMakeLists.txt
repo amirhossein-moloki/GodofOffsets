@@ -64,3 +64,6 @@ endif()
 # Tests
 add_executable(UnitTests tests/Tests.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
 target_link_libraries(UnitTests PRIVATE nlohmann_json::nlohmann_json Zydis)
+
+add_executable(LinuxIntegrationTest tests/LinuxIntegrationTest.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
+target_link_libraries(LinuxIntegrationTest PRIVATE nlohmann_json::nlohmann_json Zydis)
