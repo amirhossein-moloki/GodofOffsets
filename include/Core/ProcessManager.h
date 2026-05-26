@@ -69,6 +69,7 @@ struct RegionInfo {
 struct ProcessInfo {
     DWORD pid;
     std::string name;
+    std::string path;
     bool is64Bit;
 };
 

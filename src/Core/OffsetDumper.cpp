@@ -22,6 +22,38 @@ std::vector<OffsetResult> OffsetDumper::DumpModule(const std::string& moduleName
     return results;
 }
 
+std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& moduleName) {
+    std::vector<OffsetResult> results;
+    auto mod = m_pm.GetModuleInfo(moduleName);
+    if (mod.baseAddress == 0) return results;
+
+    auto modules = m_pm.GetModules();
+
+    for (const auto& section : mod.sections) {
+        if (section.name == ".data" || section.name == ".rdata" || section.name == ".bss") {
+            std::vector<uint8_t> buffer(section.virtualSize);
+            if (!m_pm.ReadMemory(section.virtualAddress, buffer.data(), section.virtualSize)) continue;
+
+            for (size_t i = 0; i <= section.virtualSize - sizeof(uintptr_t); i += sizeof(uintptr_t)) {
+                uintptr_t value = *(uintptr_t*)(buffer.data() + i);
+
+                // Check if value points to any module
+                for (const auto& m : modules) {
+                    if (value >= m.baseAddress && value < m.baseAddress + m.imageSize) {
+                        std::stringstream ss;
+                        ss << "0x" << std::hex << std::uppercase << value << " (" << m.name << "+0x" << (value - m.baseAddress) << ")";
+                        results.push_back({ section.virtualAddress + i - mod.baseAddress, moduleName,
+                                          section.name + "_ptr_" + std::to_string(i), "Pointer", ss.str() });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
 std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def) {
     std::vector<OffsetResult> results;
 

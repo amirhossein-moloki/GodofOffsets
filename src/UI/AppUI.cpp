@@ -11,9 +11,33 @@ AppUI::AppUI(Core::ProcessManager& pm, Core::Scanner& scanner)
 }
 
 void AppUI::Render() {
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+    window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("DockSpace Demo", nullptr, window_flags);
+    ImGui::PopStyleVar(3);
+
+    ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+    if (ImGui::BeginMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Exit")) { /* Handle Exit */ }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
+
+    ImGui::Begin("Main View");
 
     RenderHeader();
     ImGui::Separator();
@@ -48,7 +72,8 @@ void AppUI::Render() {
         ImGui::EndTabBar();
     }
 
-    ImGui::End();
+    ImGui::End(); // Main View
+    ImGui::End(); // DockSpace Demo
 }
 
 void AppUI::RenderHeader() {
@@ -62,7 +87,27 @@ void AppUI::RenderHeader() {
 }
 
 void AppUI::RenderProcessTab() {
-    ImGui::InputText("Process Name", m_processName, sizeof(m_processName));
+    ImGui::InputText("Filter", m_processFilter, sizeof(m_processFilter));
+
+    auto processes = Core::ProcessManager::GetProcessList();
+    if (ImGui::BeginChild("ProcessList", ImVec2(0, 200), true)) {
+        for (const auto& proc : processes) {
+            if (strlen(m_processFilter) > 0 &&
+                proc.name.find(m_processFilter) == std::string::npos &&
+                std::to_string(proc.pid).find(m_processFilter) == std::string::npos) {
+                continue;
+            }
+
+            char label[512];
+            snprintf(label, sizeof(label), "%s (PID: %d) [%s]##%d", proc.name.c_str(), proc.pid, proc.is64Bit ? "x64" : "x86", proc.pid);
+            if (ImGui::Selectable(label, strcmp(m_processName, proc.name.c_str()) == 0)) {
+                strncpy(m_processName, proc.name.c_str(), sizeof(m_processName) - 1);
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    ImGui::Text("Target: %s", m_processName);
 
     if (ImGui::Button("Attach (Standard)")) {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Standard)) {
@@ -318,6 +363,15 @@ void AppUI::RenderDumperTab() {
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", results);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
     }
+
+    ImGui::Separator();
+    static char targetModule[64] = "";
+    ImGui::InputText("Target Module", targetModule, sizeof(targetModule));
+    if (ImGui::Button("Analyze Data Sections")) {
+        auto results = m_dumper.AnalyzeDataSections(targetModule);
+        m_dumper.SaveToJSON(std::string(targetModule) + "_ptrs.json", results);
+        m_status = "Analyzed " + std::string(targetModule) + " and saved to JSON";
+    }
 }
 
 void AppUI::RenderHexViewerTab() {
@@ -326,22 +380,31 @@ void AppUI::RenderHexViewerTab() {
 
     uint8_t buffer[256];
     if (m_pm.ReadMemory(hexBase, buffer, sizeof(buffer))) {
+        ImGui::BeginChild("HexScroll");
+        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]); // Use monospace if available, but usually default is okay
+
         for (int i = 0; i < 16; ++i) {
-            ImGui::Text("0x%llX: ", (unsigned long long)(hexBase + i * 16));
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 1.0f), "0x%016llX: ", (unsigned long long)(hexBase + i * 16));
             ImGui::SameLine();
+
             for (int j = 0; j < 16; ++j) {
-                ImGui::Text("%02X ", buffer[i * 16 + j]);
+                if (j == 8) { ImGui::Text(" "); ImGui::SameLine(); }
+                ImGui::Text("%02X", buffer[i * 16 + j]);
                 ImGui::SameLine();
             }
+
             ImGui::Text(" | ");
             ImGui::SameLine();
+
             for (int j = 0; j < 16; ++j) {
                 char c = buffer[i * 16 + j];
-                ImGui::Text("%c", (c >= 32 && c <= 126) ? c : '.');
+                ImGui::TextColored(ImVec4(0.7f, 1.0f, 0.7f, 1.0f), "%c", (c >= 32 && c <= 126) ? c : '.');
                 ImGui::SameLine();
             }
             ImGui::NewLine();
         }
+        ImGui::PopFont();
+        ImGui::EndChild();
     }
 }
 

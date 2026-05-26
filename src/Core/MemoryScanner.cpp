@@ -16,6 +16,7 @@ MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm) {}
 void MemoryScanner::Reset() {
     std::lock_guard<std::mutex> lock(m_resultsMutex);
     m_results.clear();
+    m_lastValues.clear();
     while (!m_history.empty()) m_history.pop();
     m_progress = 0.0f;
 }
@@ -23,7 +24,9 @@ void MemoryScanner::Reset() {
 void MemoryScanner::Undo() {
     std::lock_guard<std::mutex> lock(m_resultsMutex);
     if (!m_history.empty()) {
-        m_results = m_history.top();
+        auto snapshot = m_history.top();
+        m_results = snapshot.results;
+        m_lastValues = snapshot.values;
         m_history.pop();
     }
 }
@@ -35,6 +38,16 @@ void MemoryScanner::Cancel() {
 std::vector<uintptr_t> MemoryScanner::GetResults() {
     std::lock_guard<std::mutex> lock(m_resultsMutex);
     return m_results;
+}
+
+std::vector<uint8_t> MemoryScanner::GetValue(uintptr_t address) {
+    std::lock_guard<std::mutex> lock(m_resultsMutex);
+    for (size_t i = 0; i < m_results.size(); ++i) {
+        if (m_results[i] == address) {
+            return m_lastValues[i];
+        }
+    }
+    return {};
 }
 
 size_t MemoryScanner::GetResultCount() {
@@ -65,9 +78,10 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
             if (!m_results.empty()) {
-                m_history.push(m_results);
+                m_history.push({ m_results, m_lastValues });
             }
             m_results.clear();
+            m_lastValues.clear();
         }
 
         auto regions = m_pm.GetRegions();
@@ -76,6 +90,7 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
 
         std::mutex localResultsMutex;
         std::vector<uintptr_t> allResults;
+        std::vector<std::vector<uint8_t>> allValues;
         size_t scannedSize = 0;
 
         std::vector<std::thread> threads;
@@ -87,16 +102,33 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
 
             const auto& region = regions[i];
 
-            threads.push_back(std::thread([this, region, val, scanType, &localResultsMutex, &allResults, &scannedSize, totalSize]() {
+            threads.push_back(std::thread([this, region, val, scanType, &localResultsMutex, &allResults, &allValues, &scannedSize, totalSize]() {
                 std::vector<uintptr_t> localResults;
+                std::vector<std::vector<uint8_t>> localValues;
                 if (val.type == DataType::AOB) {
                     localResults = AOBScan(region, std::get<std::string>(val.value));
+                    // For AOB scan, we need to store the bytes found so NextScan (relative) doesn't crash
+                    std::string pattern = std::get<std::string>(val.value);
+                    size_t patternSize = 0;
+                    std::stringstream ss(pattern);
+                    std::string item;
+                    while (ss >> item) patternSize++;
+
+                    for (uintptr_t addr : localResults) {
+                        std::vector<uint8_t> bytes(patternSize);
+                        if (m_pm.ReadMemory(addr, bytes.data(), patternSize)) {
+                            localValues.push_back(std::move(bytes));
+                        } else {
+                            localValues.push_back(std::vector<uint8_t>(patternSize, 0));
+                        }
+                    }
                 } else {
-                    ScanRegion(region, val, scanType, localResults);
+                    ScanRegion(region, val, scanType, localResults, localValues);
                 }
 
                 std::lock_guard<std::mutex> lock(localResultsMutex);
                 allResults.insert(allResults.end(), localResults.begin(), localResults.end());
+                allValues.insert(allValues.end(), localValues.begin(), localValues.end());
                 scannedSize += region.size;
                 m_progress = (float)scannedSize / totalSize;
             }));
@@ -111,6 +143,7 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
             m_results = std::move(allResults);
+            m_lastValues = std::move(allValues);
         }
         m_isScanning = false;
     }).detach();
@@ -124,13 +157,16 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
         m_cancelRequested = false;
 
         std::vector<uintptr_t> currentResults;
+        std::vector<std::vector<uint8_t>> currentValues;
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
             currentResults = m_results;
-            m_history.push(m_results);
+            currentValues = m_lastValues;
+            m_history.push({ m_results, m_lastValues });
         }
 
         std::vector<uintptr_t> nextResults;
+        std::vector<std::vector<uint8_t>> nextValues;
         size_t total = currentResults.size();
         size_t step = 1000;
 
@@ -144,8 +180,17 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
                 uintptr_t addr = currentResults[j];
                 std::vector<uint8_t> buffer(typeSize);
                 if (m_pm.ReadMemory(addr, buffer.data(), typeSize)) {
-                    if (CompareValues(buffer.data(), val, scanType, typeSize)) {
+                    bool match = false;
+                    if (scanType == ScanType::Increased || scanType == ScanType::Decreased ||
+                        scanType == ScanType::Changed || scanType == ScanType::Unchanged) {
+                        match = CompareRelative(buffer.data(), currentValues[j].data(), val.type, scanType, typeSize);
+                    } else {
+                        match = CompareValues(buffer.data(), val, scanType, typeSize);
+                    }
+
+                    if (match) {
                         nextResults.push_back(addr);
+                        nextValues.push_back(buffer);
                     }
                 }
             }
@@ -155,12 +200,13 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
             m_results = std::move(nextResults);
+            m_lastValues = std::move(nextValues);
         }
         m_isScanning = false;
     }).detach();
 }
 
-void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults) {
+void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<std::vector<uint8_t>>& localValues) {
     const size_t bufferSize = 64 * 1024;
     std::vector<uint8_t> buffer(bufferSize);
     size_t typeSize = GetDataTypeSize(val.type, val);
@@ -175,6 +221,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
         for (size_t i = 0; i <= (toRead >= typeSize ? toRead - typeSize : 0); ++i) {
             if (CompareValues(buffer.data() + i, val, scanType, typeSize)) {
                 localResults.push_back(region.baseAddress + offset + i);
+                localValues.emplace_back(buffer.data() + i, buffer.data() + i + typeSize);
             }
         }
         if (toRead < bufferSize) break;
@@ -188,6 +235,34 @@ bool Compare(T mVal, T vVal, T vVal2, ScanType scanType) {
         case ScanType::GreaterThan: return mVal > vVal;
         case ScanType::LessThan: return mVal < vVal;
         case ScanType::Between: return mVal >= vVal && mVal <= vVal2;
+        default: return false;
+    }
+}
+
+template<typename T>
+bool CompareRel(T current, T previous, ScanType scanType) {
+    switch (scanType) {
+        case ScanType::Increased: return current > previous;
+        case ScanType::Decreased: return current < previous;
+        case ScanType::Changed:   return current != previous;
+        case ScanType::Unchanged: return current == previous;
+        default: return false;
+    }
+}
+
+bool MemoryScanner::CompareRelative(const void* current, const void* previous, DataType type, ScanType scanType, size_t size) {
+    switch (type) {
+        case DataType::Int8:   return CompareRel(*(int8_t*)current, *(int8_t*)previous, scanType);
+        case DataType::Uint8:  return CompareRel(*(uint8_t*)current, *(uint8_t*)previous, scanType);
+        case DataType::Int16:  return CompareRel(*(int16_t*)current, *(int16_t*)previous, scanType);
+        case DataType::Uint16: return CompareRel(*(uint16_t*)current, *(uint16_t*)previous, scanType);
+        case DataType::Int32:  return CompareRel(*(int32_t*)current, *(int32_t*)previous, scanType);
+        case DataType::Uint32: return CompareRel(*(uint32_t*)current, *(uint32_t*)previous, scanType);
+        case DataType::Int64:  return CompareRel(*(int64_t*)current, *(int64_t*)previous, scanType);
+        case DataType::Uint64: return CompareRel(*(uint64_t*)current, *(uint64_t*)previous, scanType);
+        case DataType::Float:  return CompareRel(*(float*)current, *(float*)previous, scanType);
+        case DataType::Double: return CompareRel(*(double*)current, *(double*)previous, scanType);
+        case DataType::String: return memcmp(current, previous, size) != 0; // Only Changed/Unchanged make sense for String
         default: return false;
     }
 }

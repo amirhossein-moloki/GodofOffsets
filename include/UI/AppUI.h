@@ -25,6 +25,7 @@ private:
     std::vector<Core::Signature> m_sigs;
 
     char m_processName[64] = "RainbowSix.exe";
+    char m_processFilter[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
 
