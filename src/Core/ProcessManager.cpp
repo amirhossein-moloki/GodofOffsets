@@ -7,6 +7,7 @@
 #ifdef _WIN32
 #include <tlhelp32.h>
 #include <psapi.h>
+#include "Shared/Ioctl.h"
 #else
 #include <sys/uio.h>
 #include <unistd.h>
@@ -69,6 +70,26 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
 }
 
 bool ProcessManager::Attach(const std::string& processName, MemoryMode mode) {
+#ifdef _WIN32
+    if (mode == MemoryMode::Stealth) {
+        Detach();
+        m_mode = mode;
+        m_hDriver = Utils::WinHandle(CreateFileA("\\\\.\\KernelDumper", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL));
+        if (m_hDriver.IsValid()) {
+            DUMPER_GET_PID_REQUEST request = { 0 };
+            strncpy(request.process_name, processName.c_str(), sizeof(request.process_name) - 1);
+            DWORD bytes;
+            if (DeviceIoControl(m_hDriver, IOCTL_DUMPER_GET_PID, &request, sizeof(request), &request, sizeof(request), &bytes, NULL)) {
+                m_pid = request.pid;
+                // Hide driver
+                DeviceIoControl(m_hDriver, IOCTL_DUMPER_HIDE_DRIVER, NULL, 0, NULL, 0, &bytes, NULL);
+                return true;
+            }
+        }
+        return false;
+    }
+#endif
+
     auto processes = GetProcessList();
     for (const auto& proc : processes) {
         if (proc.name == processName) {
@@ -80,15 +101,21 @@ bool ProcessManager::Attach(const std::string& processName, MemoryMode mode) {
 
 void ProcessManager::Detach() {
     m_hProcess.Close();
+    m_hDriver.Close();
     m_pid = 0;
     m_mode = MemoryMode::Standard;
 }
 
 bool ProcessManager::OpenProcessWithStealth(DWORD pid) {
 #ifdef _WIN32
-    m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
-    if (m_hProcess.IsValid()) {
-        std::cout << "[!] Stealth Mode: Attached" << std::endl;
+    m_hDriver = Utils::WinHandle(CreateFileA("\\\\.\\KernelDumper", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL));
+    if (m_hDriver.IsValid()) {
+        std::cout << "[!] Stealth Mode: Driver connection established" << std::endl;
+
+        // Try to hide driver right after opening
+        DWORD bytes;
+        DeviceIoControl(m_hDriver, IOCTL_DUMPER_HIDE_DRIVER, NULL, 0, NULL, 0, &bytes, NULL);
+
         return true;
     }
 #endif
@@ -269,6 +296,20 @@ std::vector<RegionInfo> ProcessManager::GetRegions() const {
 }
 
 uintptr_t ProcessManager::GetModuleBase(const std::string& moduleName) const {
+#ifdef _WIN32
+    if (m_mode == MemoryMode::Stealth && m_hDriver.IsValid()) {
+        DUMPER_GET_MODULE_REQUEST request = { 0 };
+        request.pid = m_pid;
+        strncpy(request.module_name, moduleName.c_str(), sizeof(request.module_name) - 1);
+        request.base_address = 0;
+
+        DWORD bytes;
+        if (DeviceIoControl(m_hDriver, IOCTL_DUMPER_GET_MODULE_BASE, &request, sizeof(request), &request, sizeof(request), &bytes, NULL)) {
+            return (uintptr_t)request.base_address;
+        }
+    }
+#endif
+
     auto modules = GetModules();
     for (const auto& mod : modules) {
         if (mod.name == moduleName) {
@@ -289,8 +330,19 @@ ModuleInfo ProcessManager::GetModuleInfo(const std::string& moduleName) const {
 }
 
 bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size) const {
-    if (!m_hProcess.IsValid()) return false;
 #ifdef _WIN32
+    if (m_mode == MemoryMode::Stealth && m_hDriver.IsValid()) {
+        DUMPER_READ_MEMORY_REQUEST request;
+        request.pid = m_pid;
+        request.address = (UINT64)address;
+        request.buffer = (UINT64)buffer;
+        request.size = (UINT64)size;
+
+        DWORD bytes;
+        return DeviceIoControl(m_hDriver, IOCTL_DUMPER_READ_MEMORY, &request, sizeof(request), &request, sizeof(request), &bytes, NULL);
+    }
+
+    if (!m_hProcess.IsValid()) return false;
     SIZE_T bytesRead;
     return ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
 #else

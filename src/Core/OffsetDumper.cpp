@@ -77,4 +77,43 @@ bool OffsetDumper::SaveToCSV(const std::string& filename, const std::vector<Offs
     return true;
 }
 
+bool OffsetDumper::SaveToText(const std::string& filename, const std::string& processName, DWORD pid, const std::vector<OffsetResult>& results) {
+    std::ofstream o(filename);
+    if (!o.is_open()) return false;
+
+    o << "[Process]" << std::endl;
+    o << "Name: " << processName << std::endl;
+    o << "PID: " << pid << std::endl << std::endl;
+
+    o << "[Modules]" << std::endl;
+    std::vector<std::string> uniqueModules;
+    for (const auto& res : results) {
+        if (!res.moduleName.empty()) {
+            bool found = false;
+            for (const auto& m : uniqueModules) if (m == res.moduleName) { found = true; break; }
+            if (!found) uniqueModules.push_back(res.moduleName);
+        }
+    }
+    // Also include the process name itself if not present
+    bool procFound = false;
+    for (const auto& m : uniqueModules) if (m == processName) { procFound = true; break; }
+    if (!procFound) uniqueModules.push_back(processName);
+
+    for (const auto& modName : uniqueModules) {
+        uintptr_t base = m_pm.GetModuleBase(modName);
+        if (base) {
+            o << modName << ": 0x" << std::hex << std::uppercase << base << std::endl;
+        }
+    }
+    o << std::endl;
+
+    o << "[Offsets]" << std::endl;
+    for (const auto& res : results) {
+        if (res.type == "Section" || res.name == "Base") continue;
+        o << res.name << ": " << res.moduleName << " + 0x" << std::hex << std::uppercase << res.offset << " = 0x" << res.value << std::endl;
+    }
+
+    return true;
+}
+
 } // namespace Core
