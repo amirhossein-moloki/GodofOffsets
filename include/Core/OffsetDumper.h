@@ -35,6 +35,7 @@ public:
 
     bool SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results);
     bool SaveToCSV(const std::string& filename, const std::vector<OffsetResult>& results);
+    bool SaveToText(const std::string& filename, const std::string& processName, DWORD pid, const std::vector<OffsetResult>& results);
 
 private:
     const ProcessManager& m_pm;

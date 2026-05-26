@@ -86,7 +86,10 @@ public:
     bool Attach(const std::string& processName, MemoryMode mode = MemoryMode::Standard);
     void Detach();
 
-    bool IsAttached() const { return m_hProcess.IsValid(); }
+    bool IsAttached() const {
+        if (m_mode == MemoryMode::Stealth) return m_hDriver.IsValid();
+        return m_hProcess.IsValid();
+    }
     HANDLE GetHandle() const { return m_hProcess.Get(); }
     DWORD GetPid() const { return m_pid; }
     MemoryMode GetMode() const { return m_mode; }
@@ -116,6 +119,7 @@ public:
 
 private:
     Utils::WinHandle m_hProcess;
+    Utils::WinHandle m_hDriver;
     DWORD m_pid;
     MemoryMode m_mode = MemoryMode::Standard;
 

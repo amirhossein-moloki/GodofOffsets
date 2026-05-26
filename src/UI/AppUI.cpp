@@ -211,6 +211,20 @@ void AppUI::RenderSignatureTab() {
         ExportToHeader();
         m_status = "Exported to offsets.h";
     }
+    ImGui::SameLine();
+    if (ImGui::Button("Export offsets.txt")) {
+        std::vector<Core::OffsetResult> results;
+        for (const auto& sig : m_sigs) {
+            if (sig.result) {
+                uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
+                std::stringstream ss;
+                ss << std::hex << std::uppercase << sig.result;
+                results.push_back({ sig.result - base, sig.moduleName, sig.name, "Offset", ss.str() });
+            }
+        }
+        m_dumper.SaveToText("offsets.txt", m_processName, m_pm.GetPid(), results);
+        m_status = "Exported to offsets.txt";
+    }
 
     if (ImGui::BeginTable("sigresults", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Name");
