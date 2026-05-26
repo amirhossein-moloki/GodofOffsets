@@ -32,21 +32,27 @@ std::vector<ProcessInfo> ProcessManager::GetProcessList() {
     if (Process32First(hSnapshot, &pe32)) {
         do {
             bool is64Bit = true;
+            std::string path = "";
             HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe32.th32ProcessID);
             if (hProc) {
                 BOOL wow64 = FALSE;
                 if (IsWow64Process(hProc, &wow64)) {
                     is64Bit = !wow64;
                 }
+
+                TCHAR szPath[MAX_PATH];
+                if (GetModuleFileNameEx(hProc, NULL, szPath, MAX_PATH)) {
+                    path = szPath;
+                }
                 CloseHandle(hProc);
             }
-            processes.push_back({ pe32.th32ProcessID, pe32.szExeFile, is64Bit });
+            processes.push_back({ pe32.th32ProcessID, pe32.szExeFile, path, is64Bit });
         } while (Process32Next(hSnapshot, &pe32));
     }
 
     CloseHandle(hSnapshot);
 #else
-    processes.push_back({ (DWORD)getpid(), "UniversalOffsetDumperTest", true });
+    processes.push_back({ (DWORD)getpid(), "UniversalOffsetDumperTest", "/usr/bin/UniversalOffsetDumperTest", true });
 #endif
     return processes;
 }
