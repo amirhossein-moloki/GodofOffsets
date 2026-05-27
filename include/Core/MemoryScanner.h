@@ -60,19 +60,24 @@ public:
     void Cancel();
 
 private:
+    struct ScanSnapshot {
+        std::vector<uintptr_t> addresses;
+        std::vector<uint8_t> values;
+    };
+
     const ProcessManager& m_pm;
-    std::vector<uintptr_t> m_results;
-    std::stack<std::vector<uintptr_t>> m_history;
+    ScanSnapshot m_currentScan;
+    std::stack<ScanSnapshot> m_history;
     std::mutex m_resultsMutex;
 
     std::atomic<bool> m_isScanning{false};
     std::atomic<bool> m_cancelRequested{false};
     std::atomic<float> m_progress{0.0f};
 
-    void ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults);
-    bool CompareValues(const void* mem, const ScanValue& val, ScanType scanType, size_t size);
+    void ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues);
+    bool CompareValues(const void* current, const void* previous, const ScanValue& val, ScanType scanType, size_t size);
 
-    std::vector<uintptr_t> AOBScan(const RegionInfo& region, const std::string& pattern);
+    void AOBScan(const RegionInfo& region, const std::string& pattern, std::vector<uintptr_t>& results, std::vector<uint8_t>& values);
 };
 
 } // namespace Core

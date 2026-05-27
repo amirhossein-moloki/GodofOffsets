@@ -18,77 +18,134 @@ void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t max
     std::thread([this, targetAddress, maxDepth, maxOffset]() {
         m_isScanning = true;
         m_cancelRequested = false;
+        m_progress = 0.0f;
 
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
             m_results.clear();
+            m_pointerMap.clear();
         }
 
-        auto regions = m_pm.GetRegions();
-        auto modules = m_pm.GetModules();
+        // Stage 1: Build the global pointer map
+        BuildPointerMap();
+        if (m_cancelRequested) { m_isScanning = false; return; }
+
+        m_progress = 0.8f; // Map building finished
+
+        // Stage 2: Recursive chain discovery
         std::set<uintptr_t> visited;
-        std::vector<PointerChain> localResults;
+        std::vector<uintptr_t> currentOffsets;
+        FindChainsRecursive(targetAddress, 1, maxDepth, maxOffset, currentOffsets, visited);
 
-        std::function<void(uintptr_t, int, std::vector<uintptr_t>)> scanRecursive;
-        scanRecursive = [&](uintptr_t currentTarget, int depth, std::vector<uintptr_t> currentOffsets) {
-            if (depth > maxDepth || m_cancelRequested) return;
-            if (visited.count(currentTarget)) return;
-            visited.insert(currentTarget);
+        m_progress = 1.0f;
+        m_isScanning = false;
+    }).detach();
+}
 
-            for (const auto& region : regions) {
+void PointerScanner::BuildPointerMap() {
+    auto regions = m_pm.GetRegions();
+    auto modules = m_pm.GetModules();
+
+    std::mutex mapMutex;
+    size_t totalSize = 0;
+    for (const auto& r : regions) totalSize += r.size;
+    size_t processedSize = 0;
+
+    std::vector<std::thread> threads;
+    unsigned int numThreads = std::thread::hardware_concurrency();
+    if (numThreads == 0) numThreads = 1;
+
+    for (const auto& region : regions) {
+        if (m_cancelRequested) break;
+
 #ifdef _WIN32
-                if (!(region.protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)))
-                    continue;
+        if (!(region.protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE))) {
+            processedSize += region.size;
+            continue;
+        }
 #endif
 
-                const size_t chunkSize = 1024 * 64;
-                std::vector<uint8_t> buffer(chunkSize);
+        threads.push_back(std::thread([this, region, &mapMutex, &processedSize, totalSize]() {
+            const size_t chunkSize = 1024 * 1024; // 1MB chunks
+            std::vector<uint8_t> buffer(chunkSize);
+            std::unordered_multimap<uintptr_t, uintptr_t> localMap;
 
-                for (size_t i = 0; i < region.size; i += chunkSize - sizeof(uintptr_t)) {
-                    if (m_cancelRequested) return;
-                    size_t toRead = (std::min)(chunkSize, region.size - i);
-                    if (!m_pm.ReadMemory(region.baseAddress + i, buffer.data(), toRead)) continue;
+            for (size_t i = 0; i < region.size; i += chunkSize - sizeof(uintptr_t)) {
+                if (m_cancelRequested) return;
+                size_t toRead = (std::min)(chunkSize, region.size - i);
+                if (!m_pm.ReadMemory(region.baseAddress + i, buffer.data(), toRead)) continue;
 
-                    for (size_t j = 0; j <= (toRead >= sizeof(uintptr_t) ? toRead - sizeof(uintptr_t) : 0); j += sizeof(uintptr_t)) {
-                        uintptr_t value = *(uintptr_t*)(buffer.data() + j);
+                for (size_t j = 0; j <= (toRead >= sizeof(uintptr_t) ? toRead - sizeof(uintptr_t) : 0); j += sizeof(uintptr_t)) {
+                    uintptr_t value = *(uintptr_t*)(buffer.data() + j);
 
-                        if (value >= currentTarget - maxOffset && value <= currentTarget) {
-                            uintptr_t foundAddr = region.baseAddress + i + j;
-                            uintptr_t offset = currentTarget - value;
-
-                            std::vector<uintptr_t> newOffsets = currentOffsets;
-                            newOffsets.insert(newOffsets.begin(), offset);
-
-                            for (const auto& mod : modules) {
-                                if (foundAddr >= mod.baseAddress && foundAddr < mod.baseAddress + mod.imageSize) {
-                                    PointerChain chain;
-                                    chain.baseAddress = mod.baseAddress;
-                                    chain.moduleName = mod.name;
-                                    chain.offsets = newOffsets;
-                                    chain.offsets.insert(chain.offsets.begin(), foundAddr - mod.baseAddress);
-
-                                    localResults.push_back(chain);
-                                    return;
-                                }
-                            }
-
-                            if (depth < maxDepth) {
-                                scanRecursive(foundAddr, depth + 1, newOffsets);
-                            }
-                        }
+                    // Simple filter: value must look like a valid pointer (aligned and in a known region)
+                    // We don't verify all regions here for speed, but we could.
+                    if (value > 0x10000 && (value % sizeof(uintptr_t) == 0)) {
+                        localMap.insert({ value, region.baseAddress + i + j });
                     }
                 }
             }
-        };
 
-        scanRecursive(targetAddress, 1, {});
+            {
+                std::lock_guard<std::mutex> lock(mapMutex);
+                m_pointerMap.insert(localMap.begin(), localMap.end());
+                processedSize += region.size;
+                m_progress = 0.8f * ((float)processedSize / totalSize);
+            }
+        }));
 
-        {
-            std::lock_guard<std::mutex> lock(m_resultsMutex);
-            m_results = std::move(localResults);
+        if (threads.size() >= numThreads) {
+            for (auto& t : threads) t.join();
+            threads.clear();
         }
-        m_isScanning = false;
-    }).detach();
+    }
+    for (auto& t : threads) t.join();
+}
+
+void PointerScanner::FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited) {
+    if (depth > maxDepth || m_cancelRequested) return;
+    if (visited.count(currentTarget)) return;
+    visited.insert(currentTarget);
+
+    auto modules = m_pm.GetModules();
+
+    // Check pointers that point to an address within [currentTarget - maxOffset, currentTarget]
+    // Since our map is value -> address, we iterate the range
+    for (uintptr_t val = currentTarget - maxOffset; val <= currentTarget; ++val) {
+        if (val % sizeof(uintptr_t) != 0) continue;
+
+        auto range = m_pointerMap.equal_range(val);
+        for (auto it = range.first; it != range.second; ++it) {
+            if (m_cancelRequested) return;
+
+            uintptr_t foundAddr = it->second;
+            uintptr_t offset = currentTarget - val;
+
+            std::vector<uintptr_t> newOffsets = currentOffsets;
+            newOffsets.insert(newOffsets.begin(), offset);
+
+            // Check if this address belongs to a module (static base)
+            bool foundStatic = false;
+            for (const auto& mod : modules) {
+                if (foundAddr >= mod.baseAddress && foundAddr < mod.baseAddress + mod.imageSize) {
+                    PointerChain chain;
+                    chain.baseAddress = mod.baseAddress;
+                    chain.moduleName = mod.name;
+                    chain.offsets = newOffsets;
+                    chain.offsets.insert(chain.offsets.begin(), foundAddr - mod.baseAddress);
+
+                    std::lock_guard<std::mutex> lock(m_resultsMutex);
+                    m_results.push_back(chain);
+                    foundStatic = true;
+                    break;
+                }
+            }
+
+            if (!foundStatic && depth < maxDepth) {
+                FindChainsRecursive(foundAddr, depth + 1, maxDepth, maxOffset, newOffsets, visited);
+            }
+        }
+    }
 }
 
 std::vector<PointerChain> PointerScanner::GetResults() {
