@@ -53,12 +53,21 @@ void AppUI::Render() {
 
 void AppUI::RenderHeader() {
     ImGui::TextColored(ImVec4(0, 1, 1, 1), "Universal Offset Dumper v1.0");
-    ImGui::SameLine(ImGui::GetWindowWidth() - 250);
-    ImGui::Text("Status: %s", m_status.c_str());
-    if (m_memScanner.IsScanning() || m_ptrScanner.IsScanning()) {
+    ImGui::SameLine(ImGui::GetWindowWidth() - 400);
+
+    if (m_memScanner.IsScanning()) {
+        ImGui::Text("Mem Scan:");
         ImGui::SameLine();
-        ImGui::ProgressBar(m_memScanner.GetProgress(), ImVec2(100, 0));
+        ImGui::ProgressBar(m_memScanner.GetProgress(), ImVec2(120, 0));
+        ImGui::SameLine();
+    } else if (m_ptrScanner.IsScanning()) {
+        ImGui::Text("Ptr Scan:");
+        ImGui::SameLine();
+        ImGui::ProgressBar(m_ptrScanner.GetProgress(), ImVec2(120, 0));
+        ImGui::SameLine();
     }
+
+    ImGui::Text("Status: %s", m_status.c_str());
 }
 
 void AppUI::RenderProcessTab() {
@@ -149,11 +158,16 @@ void AppUI::RenderMemoryScannerTab() {
 
     if (ImGui::BeginChild("ScannerResults", ImVec2(0, 0), true)) {
         auto results = m_memScanner.GetResults();
-        size_t displayCount = (std::min)(results.size(), (size_t)1000);
-        for (size_t i = 0; i < displayCount; ++i) {
-            ImGui::Text("0x%llX", (unsigned long long)results[i]);
+        ImGuiListClipper clipper;
+        clipper.Begin((int)results.size());
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+                ImGui::Text("0x%llX", (unsigned long long)results[i]);
+                if (ImGui::IsItemClicked()) {
+                    // TODO: Add to dumper or jump to in hex viewer
+                }
+            }
         }
-        if (results.size() > 1000) ImGui::Text("... and %zu more", results.size() - 1000);
         ImGui::EndChild();
     }
 }
@@ -318,30 +332,67 @@ void AppUI::RenderDumperTab() {
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", results);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
     }
+
+    ImGui::Separator();
+    ImGui::Text("Automated Data Section Analysis");
+    static char targetModule[64] = "RainbowSix.exe";
+    ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule));
+
+    if (ImGui::Button("Analyze Data Sections")) {
+        auto results = m_dumper.AnalyzeDataSections(targetModule);
+        m_dumper.SaveToJSON("data_analysis.json", results);
+        m_status = "Analysis complete. Results in data_analysis.json";
+    }
 }
 
 void AppUI::RenderHexViewerTab() {
     static uintptr_t hexBase = 0;
-    ImGui::InputScalar("View Address", ImGuiDataType_U64, &hexBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+    static char hexAddrBuf[32] = "0";
 
-    uint8_t buffer[256];
-    if (m_pm.ReadMemory(hexBase, buffer, sizeof(buffer))) {
-        for (int i = 0; i < 16; ++i) {
-            ImGui::Text("0x%llX: ", (unsigned long long)(hexBase + i * 16));
-            ImGui::SameLine();
-            for (int j = 0; j < 16; ++j) {
-                ImGui::Text("%02X ", buffer[i * 16 + j]);
+    ImGui::Text("Address:");
+    ImGui::SameLine();
+    ImGui::PushItemWidth(200);
+    if (ImGui::InputText("##HexAddr", hexAddrBuf, sizeof(hexAddrBuf), ImGuiInputTextFlags_CharsHexadecimal)) {
+        try { hexBase = std::stoull(hexAddrBuf, nullptr, 16); } catch (...) {}
+    }
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    if (ImGui::Button("Go")) {
+        try { hexBase = std::stoull(hexAddrBuf, nullptr, 16); } catch (...) {}
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::BeginChild("HexScroll", ImVec2(0, 0), true)) {
+        const int rows = 32;
+        uint8_t buffer[rows * 16];
+        if (m_pm.ReadMemory(hexBase, buffer, sizeof(buffer))) {
+            for (int i = 0; i < rows; ++i) {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)(hexBase + i * 16));
                 ImGui::SameLine();
-            }
-            ImGui::Text(" | ");
-            ImGui::SameLine();
-            for (int j = 0; j < 16; ++j) {
-                char c = buffer[i * 16 + j];
-                ImGui::Text("%c", (c >= 32 && c <= 126) ? c : '.');
+
+                for (int j = 0; j < 16; ++j) {
+                    uint8_t b = buffer[i * 16 + j];
+                    if (b == 0) ImGui::TextDisabled("00 ");
+                    else ImGui::Text("%02X ", b);
+                    ImGui::SameLine();
+                }
+
+                ImGui::Text("| ");
                 ImGui::SameLine();
+
+                for (int j = 0; j < 16; ++j) {
+                    char c = buffer[i * 16 + j];
+                    if (c >= 32 && c <= 126) ImGui::Text("%c", c);
+                    else ImGui::TextDisabled(".");
+                    ImGui::SameLine();
+                }
+                ImGui::NewLine();
             }
-            ImGui::NewLine();
+        } else {
+            ImGui::TextColored(ImVec4(1, 0, 0, 1), "Cannot read memory at 0x%llX", (unsigned long long)hexBase);
         }
+        ImGui::EndChild();
     }
 }
 

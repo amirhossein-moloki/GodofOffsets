@@ -52,6 +52,12 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(${PROJECT_NAME} PRIVATE Zydis)
 
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX2)
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE -mavx2)
+endif()
+
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE d3d11 d3dcompiler dwmapi setupapi)
     if(MSVC)
@@ -64,6 +70,8 @@ endif()
 # Tests
 add_executable(UnitTests tests/Tests.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
 target_link_libraries(UnitTests PRIVATE nlohmann_json::nlohmann_json Zydis)
+target_compile_options(UnitTests PRIVATE -mavx2)
 
 add_executable(LinuxIntegrationTest tests/LinuxIntegrationTest.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
 target_link_libraries(LinuxIntegrationTest PRIVATE nlohmann_json::nlohmann_json Zydis)
+target_compile_options(LinuxIntegrationTest PRIVATE -mavx2)
