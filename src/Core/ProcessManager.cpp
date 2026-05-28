@@ -61,6 +61,11 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
         return OpenProcessWithStealth(m_pid);
     } else {
         m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
+        if (!m_hProcess.IsValid() && GetLastError() == ERROR_ACCESS_DENIED) {
+            if (EnableDebugPrivilege()) {
+                m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
+            }
+        }
         return m_hProcess.IsValid();
     }
 #else

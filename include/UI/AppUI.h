@@ -45,6 +45,11 @@ private:
     char m_structName[64] = "MyStruct";
     std::vector<Core::StructField> m_structFields;
 
+    // Hex Viewer state (shared)
+    uintptr_t m_hexBase = 0;
+    char m_hexAddrBuf[32] = "0";
+    bool m_switchToHexView = false;
+
     void RenderHeader();
     void RenderProcessTab();
     void RenderSignatureTab();

@@ -86,6 +86,10 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
 
         std::mutex localResultsMutex;
         ScanSnapshot allResults;
+        // Pre-allocate space for results to avoid frequent reallocations
+        allResults.addresses.reserve(10000);
+        allResults.values.reserve(10000 * sizeof(uint64_t));
+
         size_t scannedSize = 0;
 
         std::vector<std::thread> threads;
@@ -144,9 +148,12 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
 
         ScanSnapshot nextResults;
         size_t total = prevScan.addresses.size();
+        nextResults.addresses.reserve(total / 2);
+        size_t typeSize = GetDataTypeSize(val.type, val);
+        nextResults.values.reserve(nextResults.addresses.capacity() * typeSize);
+
         size_t step = 1000;
 
-        size_t typeSize = GetDataTypeSize(val.type, val);
         std::vector<uint8_t> buffer(typeSize);
 
         for (size_t i = 0; i < total; i += step) {
@@ -183,7 +190,20 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
         if (m_cancelRequested) break;
 
         size_t toRead = (std::min)(bufferSize, region.size - offset);
-        if (!m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead)) {
+        bool readSuccess = m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead);
+
+#ifdef _WIN32
+        // If read fails, try to temporarily change protection (optional and with caution)
+        if (!readSuccess && !(region.protect & PAGE_GUARD) && (region.protect & PAGE_NOACCESS)) {
+            DWORD oldProtect;
+            if (VirtualProtectEx(m_pm.GetHandle(), (LPVOID)(region.baseAddress + offset), toRead, PAGE_EXECUTE_READ, &oldProtect)) {
+                readSuccess = m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead);
+                VirtualProtectEx(m_pm.GetHandle(), (LPVOID)(region.baseAddress + offset), toRead, oldProtect, &oldProtect);
+            }
+        }
+#endif
+
+        if (!readSuccess) {
             offset += bufferSize;
             continue;
         }
