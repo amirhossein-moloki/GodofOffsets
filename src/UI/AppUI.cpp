@@ -17,6 +17,8 @@ void AppUI::SetupStyles() {
 
     // Adjust for high-DPI and touch targets
     float scale = 1.2f; // Base scale factor
+    ImGui::GetIO().FontGlobalScale = scale;
+
     style.WindowPadding = ImVec2(10, 10) * scale;
     style.FramePadding = ImVec2(8, 6) * scale;
     style.ItemSpacing = ImVec2(10, 8) * scale;
@@ -192,6 +194,11 @@ void AppUI::RenderProcessTab() {
 
     ImGui::Dummy(ImVec2(0, 20));
     ImGui::Text("ATTACHMENT MODE");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Stealth Mode requires the 'KernelDumper.sys' driver in the same directory\nand the application to be running with Administrator privileges.");
+    }
     ImGui::Separator();
     ImGui::Dummy(ImVec2(0, 5));
 
@@ -290,14 +297,32 @@ void AppUI::RenderMemoryScannerTab() {
     }
 
     const char* scanTypes[] = { "Exact Value", "Unknown Initial", "Increased", "Decreased", "Changed", "Unchanged", "Greater Than", "Less Than", "Between" };
-    int currentScanType = (int)m_selectedScanType;
 
     ImGui::Text("Scan Settings");
     ImGui::Separator();
 
     ImGui::PushItemWidth(200);
-    if (ImGui::Combo("Scan Type", &currentScanType, scanTypes, 9)) {
-        m_selectedScanType = (Core::ScanType)currentScanType;
+    if (ImGui::BeginCombo("Scan Type", scanTypes[(int)m_selectedScanType])) {
+        auto SelectableScanType = [&](Core::ScanType type) {
+            if (ImGui::Selectable(scanTypes[(int)type], m_selectedScanType == type)) {
+                m_selectedScanType = type;
+            }
+        };
+
+        ImGui::SeparatorText("Search Methods");
+        SelectableScanType(Core::ScanType::ExactValue);
+        SelectableScanType(Core::ScanType::UnknownInitial);
+        SelectableScanType(Core::ScanType::Between);
+
+        ImGui::SeparatorText("Value Filtering");
+        SelectableScanType(Core::ScanType::Increased);
+        SelectableScanType(Core::ScanType::Decreased);
+        SelectableScanType(Core::ScanType::Changed);
+        SelectableScanType(Core::ScanType::Unchanged);
+        SelectableScanType(Core::ScanType::GreaterThan);
+        SelectableScanType(Core::ScanType::LessThan);
+
+        ImGui::EndCombo();
     }
     ImGui::PopItemWidth();
 
@@ -321,7 +346,7 @@ void AppUI::RenderMemoryScannerTab() {
 
     ImGui::SameLine();
 
-    ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
+    ImGui::PushStyleColor(ImGuiCol_Button, m_accentColor);
     if (ImGui::Button("Next Scan", ImVec2(120, 35))) {
         AddLog("Starting Next Scan...", LogSeverity::Info);
         m_memScanner.NextScan(GetCurrentScanValue(), m_selectedScanType);
@@ -329,6 +354,8 @@ void AppUI::RenderMemoryScannerTab() {
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
     if (ImGui::Button("Undo")) {
         m_memScanner.Undo();
         AddLog("Undo performed. Results: " + std::to_string(m_memScanner.GetResultCount()), LogSeverity::Info);
@@ -338,6 +365,7 @@ void AppUI::RenderMemoryScannerTab() {
         m_memScanner.Reset();
         AddLog("Memory scanner reset.", LogSeverity::Warning);
     }
+    ImGui::PopStyleColor();
 
     ImGui::Text("Results: %zu", m_memScanner.GetResultCount());
 
@@ -592,6 +620,38 @@ void AppUI::RenderDumperTab() {
 
     if (ImGui::Button("Add Field")) {
         m_structFields.push_back({"Field_" + std::to_string(m_structFields.size()), "uintptr_t", 0});
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Discover Fields")) {
+        AddLog("Attempting auto-discovery of fields near 0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << m_structBase)).str(), LogSeverity::Info);
+
+        auto modules = m_pm.GetModules();
+        const size_t scanRange = 0x200; // Scan 512 bytes
+        std::vector<uint8_t> buffer(scanRange);
+
+        if (m_pm.ReadMemory(m_structBase, buffer.data(), scanRange)) {
+            int discovered = 0;
+            for (size_t i = 0; i < scanRange; i += sizeof(uintptr_t)) {
+                uintptr_t val = *(uintptr_t*)(buffer.data() + i);
+
+                // Check if it's a valid pointer to any module
+                for (const auto& mod : modules) {
+                    if (val >= mod.baseAddress && val < mod.baseAddress + mod.imageSize) {
+                        bool alreadyExists = false;
+                        for (const auto& f : m_structFields) if (f.offset == i) alreadyExists = true;
+
+                        if (!alreadyExists) {
+                            m_structFields.push_back({ "ptr_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << i)).str(), "uintptr_t", i });
+                            discovered++;
+                        }
+                        break;
+                    }
+                }
+            }
+            AddLog("Auto-discovery complete. Found " + std::to_string(discovered) + " potential pointers.", LogSeverity::Success);
+        } else {
+            AddLog("Failed to read memory for auto-discovery.", LogSeverity::Error);
+        }
     }
 
     for (size_t i = 0; i < m_structFields.size(); ++i) {
