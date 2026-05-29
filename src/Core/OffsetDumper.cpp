@@ -41,9 +41,15 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
             for (size_t i = 0; i <= (section.virtualSize >= sizeof(uintptr_t) ? section.virtualSize - sizeof(uintptr_t) : 0); i += sizeof(uintptr_t)) {
                 uintptr_t value = *(uintptr_t*)(buffer.data() + i);
 
+                // Quick alignment and null check
+                if (value == 0 || (value % sizeof(uintptr_t) != 0)) continue;
+
                 // Check if value is a pointer to any module
                 for (const auto& targetMod : allModules) {
                     if (value >= targetMod.baseAddress && value < targetMod.baseAddress + targetMod.imageSize) {
+                        // Further refinement: check if the pointed-to address looks like valid code or data
+                        // (Optional: could read the destination to see if it's also a pointer or has some pattern)
+
                         std::stringstream ss;
                         ss << "0x" << std::hex << std::uppercase << value;
                         results.push_back({

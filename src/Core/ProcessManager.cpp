@@ -60,7 +60,14 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
     if (m_mode == MemoryMode::Stealth) {
         return OpenProcessWithStealth(m_pid);
     } else {
-        m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
+        DWORD access = PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION;
+        m_hProcess = Utils::WinHandle(OpenProcess(access, FALSE, m_pid));
+
+        if (!m_hProcess.IsValid() && GetLastError() == ERROR_ACCESS_DENIED) {
+            if (EnableDebugPrivilege()) {
+                m_hProcess = Utils::WinHandle(OpenProcess(access, FALSE, m_pid));
+            }
+        }
         return m_hProcess.IsValid();
     }
 #else
@@ -123,6 +130,25 @@ bool ProcessManager::OpenProcessWithStealth(DWORD pid) {
 }
 
 bool ProcessManager::ElevateHandle(HANDLE hProcess) {
+#ifdef _WIN32
+    if (!hProcess) return false;
+    DWORD pid = GetProcessId(hProcess);
+    if (pid == 0) return false;
+
+    // Try to open with more permissions if possible
+    HANDLE hElevated = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    if (hElevated) {
+        m_hProcess = Utils::WinHandle(hElevated);
+        return true;
+    }
+
+    // Fallback: try to duplicate handle with same access but maybe different options
+    HANDLE hDup = nullptr;
+    if (DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(), &hDup, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        m_hProcess = Utils::WinHandle(hDup);
+        return true;
+    }
+#endif
     return false;
 }
 

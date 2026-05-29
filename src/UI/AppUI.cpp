@@ -11,6 +11,23 @@ AppUI::AppUI(Core::ProcessManager& pm, Core::Scanner& scanner)
 }
 
 void AppUI::Render() {
+    if (m_showDisclaimer) {
+        ImGui::OpenPopup("Disclaimer");
+    }
+
+    if (ImGui::BeginPopupModal("Disclaimer", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("WARNING: This tool is for educational purposes only.");
+        ImGui::Text("Using this tool on online games may result in a BAN.");
+        ImGui::Text("The author is not responsible for any misuse.");
+        ImGui::Separator();
+        if (ImGui::Button("I Accept", ImVec2(120, 0))) {
+            m_showDisclaimer = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::EndPopup();
+    }
+
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
@@ -19,28 +36,34 @@ void AppUI::Render() {
     ImGui::Separator();
 
     if (ImGui::BeginTabBar("MainTabs")) {
-        if (ImGui::BeginTabItem("Process")) {
+        if (ImGui::BeginTabItem("Process", nullptr, m_activeTab == 0 ? ImGuiTabItemFlags_SetSelected : 0)) {
+            m_activeTab = 0;
             RenderProcessTab();
             ImGui::EndTabItem();
         }
         if (m_isAttached) {
-            if (ImGui::BeginTabItem("Memory Scanner")) {
+            if (ImGui::BeginTabItem("Memory Scanner", nullptr, m_activeTab == 1 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                m_activeTab = 1;
                 RenderMemoryScannerTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Signature Scanner")) {
+            if (ImGui::BeginTabItem("Signature Scanner", nullptr, m_activeTab == 2 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                m_activeTab = 2;
                 RenderSignatureTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Pointer Scan")) {
+            if (ImGui::BeginTabItem("Pointer Scan", nullptr, m_activeTab == 3 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                m_activeTab = 3;
                 RenderPointerScanTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Structure Dumper")) {
+            if (ImGui::BeginTabItem("Structure Dumper", nullptr, m_activeTab == 4 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                m_activeTab = 4;
                 RenderDumperTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Hex Viewer")) {
+            if (ImGui::BeginTabItem("Hex Viewer", nullptr, m_activeTab == 5 ? ImGuiTabItemFlags_SetSelected : 0)) {
+                m_activeTab = 5;
                 RenderHexViewerTab();
                 ImGui::EndTabItem();
             }
@@ -60,10 +83,14 @@ void AppUI::RenderHeader() {
         ImGui::SameLine();
         ImGui::ProgressBar(m_memScanner.GetProgress(), ImVec2(120, 0));
         ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel##Mem")) m_memScanner.Cancel();
+        ImGui::SameLine();
     } else if (m_ptrScanner.IsScanning()) {
         ImGui::Text("Ptr Scan:");
         ImGui::SameLine();
         ImGui::ProgressBar(m_ptrScanner.GetProgress(), ImVec2(120, 0));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel##Ptr")) m_ptrScanner.Cancel();
         ImGui::SameLine();
     }
 
@@ -141,6 +168,10 @@ void AppUI::RenderMemoryScannerTab() {
     if (ImGui::Button("First Scan")) {
         m_memScanner.FirstScan(GetCurrentScanValue(), m_selectedScanType);
     }
+    if (m_memScanner.IsScanning()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) m_memScanner.Cancel();
+    }
     ImGui::SameLine();
     if (ImGui::Button("Next Scan")) {
         m_memScanner.NextScan(GetCurrentScanValue(), m_selectedScanType);
@@ -162,9 +193,24 @@ void AppUI::RenderMemoryScannerTab() {
         clipper.Begin((int)results.size());
         while (clipper.Step()) {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-                ImGui::Text("0x%llX", (unsigned long long)results[i]);
-                if (ImGui::IsItemClicked()) {
-                    // TODO: Add to dumper or jump to in hex viewer
+                uintptr_t addr = results[i];
+                ImGui::Selectable((std::string("0x") + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << addr)).str() + "##" + std::to_string(i)).c_str());
+
+                if (ImGui::BeginPopupContextItem()) {
+                    if (ImGui::MenuItem("Copy Address")) {
+                        char buf[32];
+                        sprintf(buf, "0x%llX", (unsigned long long)addr);
+                        ImGui::SetClipboardText(buf);
+                    }
+                    if (ImGui::MenuItem("Add to Dumper")) {
+                        m_structBase = addr;
+                    }
+                    if (ImGui::MenuItem("Jump to Hex View")) {
+                        m_hexBase = addr;
+                        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)addr);
+                        m_activeTab = 5;
+                    }
+                    ImGui::EndPopup();
                 }
             }
         }
@@ -346,19 +392,16 @@ void AppUI::RenderDumperTab() {
 }
 
 void AppUI::RenderHexViewerTab() {
-    static uintptr_t hexBase = 0;
-    static char hexAddrBuf[32] = "0";
-
     ImGui::Text("Address:");
     ImGui::SameLine();
     ImGui::PushItemWidth(200);
-    if (ImGui::InputText("##HexAddr", hexAddrBuf, sizeof(hexAddrBuf), ImGuiInputTextFlags_CharsHexadecimal)) {
-        try { hexBase = std::stoull(hexAddrBuf, nullptr, 16); } catch (...) {}
+    if (ImGui::InputText("##HexAddr", m_hexAddrBuf, sizeof(m_hexAddrBuf), ImGuiInputTextFlags_CharsHexadecimal)) {
+        try { m_hexBase = std::stoull(m_hexAddrBuf, nullptr, 16); } catch (...) {}
     }
     ImGui::PopItemWidth();
     ImGui::SameLine();
     if (ImGui::Button("Go")) {
-        try { hexBase = std::stoull(hexAddrBuf, nullptr, 16); } catch (...) {}
+        try { m_hexBase = std::stoull(m_hexAddrBuf, nullptr, 16); } catch (...) {}
     }
 
     ImGui::Separator();
@@ -366,15 +409,24 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::BeginChild("HexScroll", ImVec2(0, 0), true)) {
         const int rows = 32;
         uint8_t buffer[rows * 16];
-        if (m_pm.ReadMemory(hexBase, buffer, sizeof(buffer))) {
+        if (m_pm.ReadMemory(m_hexBase, buffer, sizeof(buffer))) {
             for (int i = 0; i < rows; ++i) {
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)(hexBase + i * 16));
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)(m_hexBase + i * 16));
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {
                     uint8_t b = buffer[i * 16 + j];
-                    if (b == 0) ImGui::TextDisabled("00 ");
-                    else ImGui::Text("%02X ", b);
+                    if (b == 0) {
+                        ImGui::TextDisabled("00 ");
+                    } else {
+                        // Color code based on byte type
+                        if (b >= 32 && b <= 126) // Printable
+                            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
+                        else if (b == 0xFF)
+                            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
+                        else
+                            ImGui::Text("%02X ", b);
+                    }
                     ImGui::SameLine();
                 }
 
@@ -382,15 +434,17 @@ void AppUI::RenderHexViewerTab() {
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {
-                    char c = buffer[i * 16 + j];
-                    if (c >= 32 && c <= 126) ImGui::Text("%c", c);
-                    else ImGui::TextDisabled(".");
+                    uint8_t b = buffer[i * 16 + j];
+                    if (b >= 32 && b <= 126)
+                        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%c", (char)b);
+                    else
+                        ImGui::TextDisabled(".");
                     ImGui::SameLine();
                 }
                 ImGui::NewLine();
             }
         } else {
-            ImGui::TextColored(ImVec4(1, 0, 0, 1), "Cannot read memory at 0x%llX", (unsigned long long)hexBase);
+            ImGui::TextColored(ImVec4(1, 0, 0, 1), "Cannot read memory at 0x%llX", (unsigned long long)m_hexBase);
         }
         ImGui::EndChild();
     }
