@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <mutex>
+#include <deque>
 #include "Core/ProcessManager.h"
 #include "Core/Scanner.h"
 #include "Core/MemoryScanner.h"
@@ -9,6 +11,30 @@
 #include "imgui.h"
 
 namespace UI {
+
+enum class TabID {
+    None = -1,
+    Process = 0,
+    MemoryScanner,
+    SignatureScanner,
+    PointerScanner,
+    Dumper,
+    HexViewer,
+    ActivityLog
+};
+
+enum class LogSeverity {
+    Info,
+    Success,
+    Warning,
+    Error
+};
+
+struct LogEntry {
+    std::string message;
+    LogSeverity severity;
+    std::string timestamp;
+};
 
 class AppUI {
 public:
@@ -54,9 +80,13 @@ private:
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
-    int m_activeTab = 0;
+    TabID m_activeTab = TabID::Process;
     std::vector<uintptr_t> m_hexHistory;
     int m_historyIndex = -1;
+
+    // Activity Log
+    std::deque<LogEntry> m_activityLog;
+    std::mutex m_logMutex;
 
     // UI Theme
     ImVec4 m_primaryColor = ImVec4(0.2f, 0.45f, 0.7f, 1.0f);
@@ -69,8 +99,10 @@ private:
     void RenderPointerScanTab();
     void RenderDumperTab();
     void RenderHexViewerTab();
+    void RenderActivityLogTab();
 
     void SetupStyles();
+    void AddLog(const std::string& message, LogSeverity severity = LogSeverity::Info);
     void PushStatusColor(const std::string& status, bool success = true);
     void RenderProcessPicker();
     void RenderEmptyState(const char* message, const char* suggestion);
