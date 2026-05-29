@@ -26,6 +26,7 @@ private:
 
     char m_processName[64] = "RainbowSix.exe";
     bool m_isAttached = false;
+    bool m_showDisclaimer = true;
     std::string m_status = "Ready";
 
     // Memory Scanner UI state
@@ -43,6 +44,12 @@ private:
     // Structure Dump UI
     uintptr_t m_structBase = 0;
     char m_structName[64] = "MyStruct";
+
+    // Hex Viewer State
+    uintptr_t m_hexBase = 0;
+    char m_hexAddrBuf[32] = "0";
+
+    int m_activeTab = 0;
     std::vector<Core::StructField> m_structFields;
 
     void RenderHeader();
