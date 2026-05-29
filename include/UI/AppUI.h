@@ -27,6 +27,12 @@ private:
     char m_processName[64] = "RainbowSix.exe";
     bool m_isAttached = false;
     std::string m_status = "Ready";
+    ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+
+    // Process Picker
+    char m_procFilter[64] = "";
+    std::vector<Core::ProcessInfo> m_cachedProcesses;
+    float m_lastProcRefresh = 0.0f;
 
     // Memory Scanner UI state
     Core::DataType m_selectedDataType = Core::DataType::Int32;
@@ -45,6 +51,11 @@ private:
     char m_structName[64] = "MyStruct";
     std::vector<Core::StructField> m_structFields;
 
+    // Hex Viewer State
+    uintptr_t m_hexBase = 0;
+    char m_hexAddrBuf[32] = "0";
+    int m_activeTab = 0;
+
     void RenderHeader();
     void RenderProcessTab();
     void RenderSignatureTab();
@@ -52,6 +63,11 @@ private:
     void RenderPointerScanTab();
     void RenderDumperTab();
     void RenderHexViewerTab();
+
+    void SetupStyles();
+    void PushStatusColor(const std::string& status, bool success = true);
+    void RenderProcessPicker();
+    void RenderEmptyState(const char* message, const char* suggestion);
 
     void ExportToHeader();
     Core::ScanValue GetCurrentScanValue();
