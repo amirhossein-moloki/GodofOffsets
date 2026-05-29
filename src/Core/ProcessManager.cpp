@@ -106,6 +106,17 @@ void ProcessManager::Detach() {
     m_mode = MemoryMode::Standard;
 }
 
+bool ProcessManager::IsDriverLoaded() const {
+#ifdef _WIN32
+    HANDLE hDriver = CreateFileA("\\\\.\\KernelDumper", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (hDriver != INVALID_HANDLE_VALUE) {
+        CloseHandle(hDriver);
+        return true;
+    }
+#endif
+    return false;
+}
+
 bool ProcessManager::OpenProcessWithStealth(DWORD pid) {
 #ifdef _WIN32
     m_hDriver = Utils::WinHandle(CreateFileA("\\\\.\\KernelDumper", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL));

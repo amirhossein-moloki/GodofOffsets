@@ -94,6 +94,8 @@ public:
     DWORD GetPid() const { return m_pid; }
     MemoryMode GetMode() const { return m_mode; }
 
+    bool IsDriverLoaded() const;
+
     std::vector<ModuleInfo> GetModules() const;
     std::vector<RegionInfo> GetRegions() const;
     uintptr_t GetModuleBase(const std::string& moduleName) const;
