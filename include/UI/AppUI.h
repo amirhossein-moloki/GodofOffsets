@@ -55,6 +55,12 @@ private:
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
     int m_activeTab = 0;
+    std::vector<uintptr_t> m_hexHistory;
+    int m_historyIndex = -1;
+
+    // UI Theme
+    ImVec4 m_primaryColor = ImVec4(0.2f, 0.45f, 0.7f, 1.0f);
+    ImVec4 m_accentColor = ImVec4(0.3f, 0.6f, 0.9f, 1.0f);
 
     void RenderHeader();
     void RenderProcessTab();
@@ -68,6 +74,7 @@ private:
     void PushStatusColor(const std::string& status, bool success = true);
     void RenderProcessPicker();
     void RenderEmptyState(const char* message, const char* suggestion);
+    void JumpToHex(uintptr_t addr);
 
     void ExportToHeader();
     Core::ScanValue GetCurrentScanValue();
