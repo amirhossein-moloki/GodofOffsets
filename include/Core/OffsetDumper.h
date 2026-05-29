@@ -33,6 +33,7 @@ public:
     std::vector<OffsetResult> DumpModule(const std::string& moduleName);
     std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def);
     std::vector<OffsetResult> AnalyzeDataSections(const std::string& moduleName);
+    StructDefinition AutoDiscoverStructure(uintptr_t baseAddress, size_t size = 0x200);
 
     bool SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results);
     bool SaveToCSV(const std::string& filename, const std::vector<OffsetResult>& results);

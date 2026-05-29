@@ -157,4 +157,44 @@ bool OffsetDumper::SaveToText(const std::string& filename, const std::string& pr
     return true;
 }
 
+StructDefinition OffsetDumper::AutoDiscoverStructure(uintptr_t baseAddress, size_t size) {
+    StructDefinition def;
+    def.name = "Auto_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << baseAddress)).str();
+
+    std::vector<uint8_t> buffer(size);
+    if (!m_pm.ReadMemory(baseAddress, buffer.data(), size)) return def;
+
+    auto allModules = m_pm.GetModules();
+
+    for (size_t i = 0; i < size; i += 4) {
+        if (i + sizeof(uintptr_t) <= size) {
+            uintptr_t value = *(uintptr_t*)(buffer.data() + i);
+
+            // Check if it's a pointer to a loaded module
+            bool isPointer = false;
+            for (const auto& mod : allModules) {
+                if (value >= mod.baseAddress && value < mod.baseAddress + mod.imageSize) {
+                    isPointer = true;
+                    break;
+                }
+            }
+
+            if (isPointer) {
+                def.fields.push_back({ "ptr_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << i)).str(), "uintptr_t", i });
+                i += sizeof(uintptr_t) - 4; // Skip the rest of the pointer
+                continue;
+            }
+        }
+
+        // Heuristic for float (rough)
+        float fValue = *(float*)(buffer.data() + i);
+        if (fValue > 0.00001f && fValue < 100000.0f) {
+             // Often floats in games are in this range, but this is very rough
+             // def.fields.push_back({ "float_" + std::to_string(i), "float", i });
+        }
+    }
+
+    return def;
+}
+
 } // namespace Core

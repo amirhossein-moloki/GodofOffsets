@@ -10,6 +10,29 @@
 
 namespace UI {
 
+enum class LogLevel {
+    Info,
+    Success,
+    Warning,
+    Error
+};
+
+struct LogEntry {
+    std::string message;
+    LogLevel level;
+    float timestamp;
+};
+
+enum class TabID {
+    Process = 0,
+    MemoryScanner = 1,
+    SignatureScanner = 2,
+    PointerScan = 3,
+    StructureDumper = 4,
+    HexViewer = 5,
+    Logs = 6
+};
+
 class AppUI {
 public:
     AppUI(Core::ProcessManager& pm, Core::Scanner& scanner);
@@ -54,7 +77,15 @@ private:
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
-    int m_activeTab = 0;
+    TabID m_activeTab = TabID::Process;
+    std::vector<uintptr_t> m_hexHistory;
+    int m_historyIndex = -1;
+
+    // UI Theme
+    ImVec4 m_primaryColor = ImVec4(0.2f, 0.45f, 0.7f, 1.0f);
+    ImVec4 m_accentColor = ImVec4(0.3f, 0.6f, 0.9f, 1.0f);
+
+    std::vector<LogEntry> m_logs;
 
     void RenderHeader();
     void RenderProcessTab();
@@ -63,11 +94,14 @@ private:
     void RenderPointerScanTab();
     void RenderDumperTab();
     void RenderHexViewerTab();
+    void RenderLogsTab();
 
     void SetupStyles();
     void PushStatusColor(const std::string& status, bool success = true);
+    void AddLog(const std::string& msg, LogLevel level = LogLevel::Info);
     void RenderProcessPicker();
     void RenderEmptyState(const char* message, const char* suggestion);
+    void JumpToHex(uintptr_t addr);
 
     void ExportToHeader();
     Core::ScanValue GetCurrentScanValue();
