@@ -371,31 +371,82 @@ void AppUI::RenderMemoryScannerTab() {
 
     if (ImGui::BeginChild("ScannerResults", ImVec2(0, 0), true)) {
         auto results = m_memScanner.GetResults();
+        auto resultValues = m_memScanner.GetResultValues();
+
         if (results.empty()) {
             RenderEmptyState("No scan results found.", "Try a different value or scan type.");
         } else {
-            ImGuiListClipper clipper;
-            clipper.Begin((int)results.size());
-            while (clipper.Step()) {
-                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
-                    char label[32];
-                    sprintf(label, "0x%llX", (unsigned long long)results[i]);
-                    if (ImGui::Selectable(label)) {
-                        // Select result
-                    }
-                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                        JumpToHex(results[i]);
-                    }
-                    if (ImGui::BeginPopupContextItem()) {
-                        if (ImGui::MenuItem("Jump to in Hex Viewer")) {
+            if (ImGui::BeginTable("ScannerResultsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+                ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableHeadersRow();
+
+                ImGuiListClipper clipper;
+                clipper.Begin((int)results.size());
+
+                size_t typeSize = 0;
+                if (!results.empty()) {
+                    typeSize = resultValues.size() / results.size();
+                }
+
+                while (clipper.Step()) {
+                    for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+
+                        char addrStr[32];
+                        sprintf(addrStr, "0x%llX", (unsigned long long)results[i]);
+
+                        bool selected = false;
+                        if (ImGui::Selectable(addrStr, &selected, ImGuiSelectableFlags_SpanAllColumns)) {
+                            // Selection logic
+                        }
+
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                             JumpToHex(results[i]);
                         }
-                        if (ImGui::MenuItem("Copy Address")) {
-                            ImGui::SetClipboardText(label);
+
+                        if (ImGui::BeginPopupContextItem()) {
+                            if (ImGui::MenuItem("Jump to in Hex Viewer")) JumpToHex(results[i]);
+                            if (ImGui::MenuItem("Copy Address")) ImGui::SetClipboardText(addrStr);
+                            ImGui::EndPopup();
                         }
-                        ImGui::EndPopup();
+
+                        ImGui::TableSetColumnIndex(1);
+                        if (i * typeSize < resultValues.size()) {
+                            const uint8_t* ptr = &resultValues[i * typeSize];
+                            char valStr[128] = "";
+                            switch (m_selectedDataType) {
+                                case Core::DataType::Int8:   sprintf(valStr, "%d", *(int8_t*)ptr); break;
+                                case Core::DataType::Uint8:  sprintf(valStr, "%u", *(uint8_t*)ptr); break;
+                                case Core::DataType::Int16:  sprintf(valStr, "%d", *(int16_t*)ptr); break;
+                                case Core::DataType::Uint16: sprintf(valStr, "%u", *(uint16_t*)ptr); break;
+                                case Core::DataType::Int32:  sprintf(valStr, "%d", *(int32_t*)ptr); break;
+                                case Core::DataType::Uint32: sprintf(valStr, "%u", *(uint32_t*)ptr); break;
+                                case Core::DataType::Int64:  sprintf(valStr, "%lld", *(int64_t*)ptr); break;
+                                case Core::DataType::Uint64: sprintf(valStr, "%llu", *(uint64_t*)ptr); break;
+                                case Core::DataType::Float:  sprintf(valStr, "%.4f", *(float*)ptr); break;
+                                case Core::DataType::Double: sprintf(valStr, "%.8f", *(double*)ptr); break;
+                                case Core::DataType::String: {
+                                    size_t len = (std::min)(typeSize, (size_t)63);
+                                    memcpy(valStr, ptr, len);
+                                    valStr[len] = '\0';
+                                    break;
+                                }
+                                case Core::DataType::AOB: {
+                                    for (size_t k = 0; k < (std::min)(typeSize, (size_t)16); ++k) {
+                                        char b[4]; sprintf(b, "%02X ", ptr[k]);
+                                        strcat(valStr, b);
+                                    }
+                                    if (typeSize > 16) strcat(valStr, "...");
+                                    break;
+                                }
+                            }
+                            ImGui::Text("%s", valStr);
+                        }
                     }
                 }
+                ImGui::EndTable();
             }
         }
         ImGui::EndChild();
@@ -770,9 +821,19 @@ void AppUI::RenderHexViewerTab() {
     ImGui::Text("Address:");
     ImGui::SameLine();
     ImGui::PushItemWidth(150);
-    if (ImGui::InputText("##HexAddr", m_hexAddrBuf, sizeof(m_hexAddrBuf), ImGuiInputTextFlags_CharsHexadecimal)) {
-        // We don't automatically update m_hexBase here to avoid spamming history
+
+    // Address Validation Feedback
+    uintptr_t previewAddr = 0;
+    try { previewAddr = std::stoull(m_hexAddrBuf, nullptr, 16); } catch(...) {}
+
+    uint8_t dummy;
+    bool isValid = m_pm.ReadMemory(previewAddr, &dummy, 1);
+
+    if (!isValid) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+    if (ImGui::InputText("##HexAddr", m_hexAddrBuf, sizeof(m_hexAddrBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue)) {
+        try { JumpToHex(std::stoull(m_hexAddrBuf, nullptr, 16)); } catch (...) {}
     }
+    if (!isValid) ImGui::PopStyleColor();
     ImGui::PopItemWidth();
     ImGui::SameLine();
     if (ImGui::Button("GO", ImVec2(50, 0))) {

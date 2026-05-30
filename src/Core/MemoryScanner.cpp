@@ -38,6 +38,11 @@ std::vector<uintptr_t> MemoryScanner::GetResults() {
     return m_currentScan.addresses;
 }
 
+std::vector<uint8_t> MemoryScanner::GetResultValues() {
+    std::lock_guard<std::mutex> lock(m_resultsMutex);
+    return m_currentScan.values;
+}
+
 size_t MemoryScanner::GetResultCount() {
     std::lock_guard<std::mutex> lock(m_resultsMutex);
     return m_currentScan.addresses.size();
