@@ -13,6 +13,7 @@ struct OffsetResult {
     std::string name;
     std::string type;
     std::string value;
+    std::string description;
 };
 
 struct StructField {
@@ -35,6 +36,7 @@ public:
     std::vector<OffsetResult> AnalyzeDataSections(const std::string& moduleName);
 
     bool SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results);
+    bool LoadFromJSON(const std::string& filename, std::vector<OffsetResult>& results);
     bool SaveToCSV(const std::string& filename, const std::vector<OffsetResult>& results);
     bool SaveToText(const std::string& filename, const std::string& processName, DWORD pid, const std::vector<OffsetResult>& results);
 

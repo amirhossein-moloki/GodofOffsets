@@ -52,6 +52,26 @@ void AppUI::PushStatusColor(const std::string& status, bool success) {
 }
 
 void AppUI::Render() {
+    if (m_showDisclaimer) {
+        ImGui::OpenPopup("Security Disclaimer");
+    }
+
+    if (ImGui::BeginPopupModal("Security Disclaimer", &m_showDisclaimer, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("WARNING: SECURITY RESEARCH TOOL");
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 10));
+        ImGui::TextWrapped("This tool is intended for educational and security research purposes only.");
+        ImGui::TextWrapped("Using this tool on games with active anti-cheat systems (e.g., BattlEye, EAC) may result in an account ban.");
+        ImGui::TextWrapped("The developers assume no responsibility for any misuse or damage caused by this software.");
+        ImGui::Dummy(ImVec2(0, 10));
+        ImGui::Separator();
+        if (ImGui::Button("I Understand", ImVec2(120, 0))) {
+            m_showDisclaimer = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     // Handle Global Keyboard Shortcuts
     auto& io = ImGui::GetIO();
     if (io.KeyAlt) {
@@ -154,7 +174,8 @@ void AppUI::RenderProcessPicker() {
         for (const auto& recent : m_recentProcesses) {
             ImGui::SameLine();
             if (ImGui::SmallButton(recent.c_str())) {
-                strcpy(m_processName, recent.c_str());
+                size_t len = recent.copy(m_processName, sizeof(m_processName) - 1);
+                m_processName[len] = '\0';
             }
         }
         ImGui::Dummy(ImVec2(0, 5));
@@ -177,10 +198,10 @@ void AppUI::RenderProcessPicker() {
     while (clipper.Step()) {
         for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
             const auto& proc = filtered[i];
-            char label[128];
-            sprintf(label, "[%5d] %s", proc.pid, proc.name.c_str());
-            if (ImGui::Selectable(label, strcmp(m_processName, proc.name.c_str()) == 0)) {
-                strcpy(m_processName, proc.name.c_str());
+            std::string label = "[" + std::to_string(proc.pid) + "] " + proc.name + " (" + (proc.is64Bit ? "x64" : "x86") + ")";
+            if (ImGui::Selectable(label.c_str(), strcmp(m_processName, proc.name.c_str()) == 0)) {
+                size_t len = proc.name.copy(m_processName, sizeof(m_processName) - 1);
+                m_processName[len] = '\0';
             }
         }
     }
@@ -764,7 +785,9 @@ void AppUI::RenderDumperTab() {
         char typeId[32]; sprintf(typeId, "Type##%zu", i);
 
         ImGui::PushItemWidth(100);
-        char fieldName[64]; strcpy(fieldName, m_structFields[i].name.c_str());
+        char fieldName[64];
+        size_t nameLen = m_structFields[i].name.copy(fieldName, sizeof(fieldName) - 1);
+        fieldName[nameLen] = '\0';
         if (ImGui::InputText(nameId, fieldName, sizeof(fieldName))) m_structFields[i].name = fieldName;
         ImGui::SameLine();
         ImGui::InputScalar(offId, ImGuiDataType_U64, &m_structFields[i].offset, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
@@ -779,10 +802,20 @@ void AppUI::RenderDumperTab() {
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
         Core::StructDefinition def = { m_structName, m_structFields };
-        auto results = m_dumper.DumpStructure(m_structBase, def);
-        m_dumper.SaveToJSON(std::string(m_structName) + ".json", results);
+        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def);
+        m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
         AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Load JSON", ImVec2(120, 35))) {
+        if (m_dumper.LoadFromJSON(std::string(m_structName) + ".json", m_dumpedResults)) {
+            m_status = "Loaded from " + std::string(m_structName) + ".json";
+            AddLog("Loaded " + std::to_string(m_dumpedResults.size()) + " results from JSON.", LogSeverity::Success);
+        } else {
+            m_status = "Failed to load JSON";
+            AddLog("Failed to load JSON: " + std::string(m_structName) + ".json", LogSeverity::Error);
+        }
     }
     ImGui::PopStyleColor();
 
@@ -794,12 +827,46 @@ void AppUI::RenderDumperTab() {
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Analyze Data Sections", ImVec2(200, 35))) {
         AddLog("Analyzing data sections for module: " + std::string(targetModule), LogSeverity::Info);
-        auto results = m_dumper.AnalyzeDataSections(targetModule);
-        m_dumper.SaveToJSON("data_analysis.json", results);
+        m_dumpedResults = m_dumper.AnalyzeDataSections(targetModule);
+        m_dumper.SaveToJSON("data_analysis.json", m_dumpedResults);
         m_status = "Analysis complete. Results in data_analysis.json";
-        AddLog("Data section analysis complete. Found " + std::to_string(results.size()) + " potential pointers.", LogSeverity::Success);
+        AddLog("Data section analysis complete. Found " + std::to_string(m_dumpedResults.size()) + " potential pointers.", LogSeverity::Success);
     }
     ImGui::PopStyleColor();
+
+    if (!m_dumpedResults.empty()) {
+        ImGui::Separator();
+        ImGui::Text("Results:");
+        if (ImGui::BeginTable("dumpedResultsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn("Name");
+            ImGui::TableSetupColumn("Offset");
+            ImGui::TableSetupColumn("Value");
+            ImGui::TableSetupColumn("Description");
+            ImGui::TableHeadersRow();
+
+            for (size_t i = 0; i < m_dumpedResults.size(); ++i) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%s", m_dumpedResults[i].name.c_str());
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("0x%llX", (unsigned long long)m_dumpedResults[i].offset);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%s", m_dumpedResults[i].value.c_str());
+                ImGui::TableSetColumnIndex(3);
+                char descBuf[1024]; // Larger buffer
+                size_t descSize = m_dumpedResults[i].description.copy(descBuf, sizeof(descBuf) - 1);
+                descBuf[descSize] = '\0';
+                if (ImGui::InputText((std::string("##desc") + std::to_string(i)).c_str(), descBuf, sizeof(descBuf))) {
+                    m_dumpedResults[i].description = descBuf;
+                }
+            }
+            ImGui::EndTable();
+        }
+        if (ImGui::Button("Save Changes to JSON")) {
+            m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
+            AddLog("Changes saved to JSON.", LogSeverity::Success);
+        }
+    }
 }
 
 void AppUI::RenderEmptyState(const char* message, const char* suggestion) {
