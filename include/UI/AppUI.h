@@ -58,6 +58,7 @@ private:
     // Process Picker
     char m_procFilter[64] = "";
     std::vector<Core::ProcessInfo> m_cachedProcesses;
+    std::deque<std::string> m_recentProcesses;
     float m_lastProcRefresh = 0.0f;
 
     // Memory Scanner UI state
@@ -71,6 +72,7 @@ private:
     int m_ptrDepth = 3;
     int m_ptrOffset = 1024;
     std::vector<Core::PointerChain> m_ptrResults;
+    std::map<std::string, std::map<uintptr_t, std::vector<Core::PointerChain>>> m_groupedPtrResults;
 
     // Structure Dump UI
     uintptr_t m_structBase = 0;
@@ -107,6 +109,7 @@ private:
     void RenderProcessPicker();
     void RenderEmptyState(const char* message, const char* suggestion);
     void JumpToHex(uintptr_t addr);
+    void AddToRecentProcesses(const std::string& name);
 
     void ExportToHeader();
     Core::ScanValue GetCurrentScanValue();

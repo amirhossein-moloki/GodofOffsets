@@ -3,6 +3,8 @@
 #include <iomanip>
 #include <sstream>
 #include <chrono>
+#include <map>
+#include <algorithm>
 
 namespace UI {
 
@@ -147,6 +149,17 @@ void AppUI::RenderProcessPicker() {
         m_lastProcRefresh = now;
     }
 
+    if (!m_recentProcesses.empty()) {
+        ImGui::Text("Recent Processes:");
+        for (const auto& recent : m_recentProcesses) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(recent.c_str())) {
+                strcpy(m_processName, recent.c_str());
+            }
+        }
+        ImGui::Dummy(ImVec2(0, 5));
+    }
+
     ImGui::Text("Filter Processes:");
     ImGui::InputText("##procfilter", m_procFilter, sizeof(m_procFilter));
 
@@ -206,6 +219,8 @@ void AppUI::RenderProcessTab() {
     if (ImGui::Button("Attach (Standard Mode)", ImVec2(-1, 45))) {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Standard)) {
             m_isAttached = true;
+            AddToRecentProcesses(m_processName);
+
             PushStatusColor("Attached (Standard)");
             AddLog("Successfully attached to " + std::string(m_processName) + " (Standard Mode)", LogSeverity::Success);
             m_memScanner.Reset();
@@ -226,6 +241,8 @@ void AppUI::RenderProcessTab() {
     if (ImGui::Button("Attach (Stealth Mode)", ImVec2(-1, 45))) {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Stealth)) {
             m_isAttached = true;
+            AddToRecentProcesses(m_processName);
+
             PushStatusColor("Attached (Stealth Mode)");
             AddLog("Successfully attached to " + std::string(m_processName) + " (Stealth Mode)", LogSeverity::Success);
             m_memScanner.Reset();
@@ -371,14 +388,15 @@ void AppUI::RenderMemoryScannerTab() {
 
     if (ImGui::BeginChild("ScannerResults", ImVec2(0, 0), true)) {
         auto results = m_memScanner.GetResults();
-        auto resultValues = m_memScanner.GetResultValues();
+        auto snapshotValues = m_memScanner.GetResultValues();
 
         if (results.empty()) {
             RenderEmptyState("No scan results found.", "Try a different value or scan type.");
         } else {
-            if (ImGui::BeginTable("ScannerResultsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
+            if (ImGui::BeginTable("ScannerResultsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable)) {
                 ImGui::TableSetupColumn("Address", ImGuiTableColumnFlags_WidthFixed, 150.0f);
-                ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Snapshot", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("Live Value", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableHeadersRow();
 
                 ImGuiListClipper clipper;
@@ -386,8 +404,38 @@ void AppUI::RenderMemoryScannerTab() {
 
                 size_t typeSize = 0;
                 if (!results.empty()) {
-                    typeSize = resultValues.size() / results.size();
+                    typeSize = snapshotValues.size() / results.size();
                 }
+
+                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr) {
+                    switch (m_selectedDataType) {
+                        case Core::DataType::Int8:   sprintf(outStr, "%d", *(int8_t*)ptr); break;
+                        case Core::DataType::Uint8:  sprintf(outStr, "%u", *(uint8_t*)ptr); break;
+                        case Core::DataType::Int16:  sprintf(outStr, "%d", *(int16_t*)ptr); break;
+                        case Core::DataType::Uint16: sprintf(outStr, "%u", *(uint16_t*)ptr); break;
+                        case Core::DataType::Int32:  sprintf(outStr, "%d", *(int32_t*)ptr); break;
+                        case Core::DataType::Uint32: sprintf(outStr, "%u", *(uint32_t*)ptr); break;
+                        case Core::DataType::Int64:  sprintf(outStr, "%lld", *(int64_t*)ptr); break;
+                        case Core::DataType::Uint64: sprintf(outStr, "%llu", *(uint64_t*)ptr); break;
+                        case Core::DataType::Float:  sprintf(outStr, "%.4f", *(float*)ptr); break;
+                        case Core::DataType::Double: sprintf(outStr, "%.8f", *(double*)ptr); break;
+                        case Core::DataType::String: {
+                            size_t len = (std::min)(size, (size_t)63);
+                            memcpy(outStr, ptr, len);
+                            outStr[len] = '\0';
+                            break;
+                        }
+                        case Core::DataType::AOB: {
+                            outStr[0] = '\0';
+                            for (size_t k = 0; k < (std::min)(size, (size_t)16); ++k) {
+                                char b[4]; sprintf(b, "%02X ", ptr[k]);
+                                strcat(outStr, b);
+                            }
+                            if (size > 16) strcat(outStr, "...");
+                            break;
+                        }
+                    }
+                };
 
                 while (clipper.Step()) {
                     for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
@@ -412,37 +460,31 @@ void AppUI::RenderMemoryScannerTab() {
                             ImGui::EndPopup();
                         }
 
+                        // Snapshot Column
                         ImGui::TableSetColumnIndex(1);
-                        if (i * typeSize < resultValues.size()) {
-                            const uint8_t* ptr = &resultValues[i * typeSize];
-                            char valStr[128] = "";
-                            switch (m_selectedDataType) {
-                                case Core::DataType::Int8:   sprintf(valStr, "%d", *(int8_t*)ptr); break;
-                                case Core::DataType::Uint8:  sprintf(valStr, "%u", *(uint8_t*)ptr); break;
-                                case Core::DataType::Int16:  sprintf(valStr, "%d", *(int16_t*)ptr); break;
-                                case Core::DataType::Uint16: sprintf(valStr, "%u", *(uint16_t*)ptr); break;
-                                case Core::DataType::Int32:  sprintf(valStr, "%d", *(int32_t*)ptr); break;
-                                case Core::DataType::Uint32: sprintf(valStr, "%u", *(uint32_t*)ptr); break;
-                                case Core::DataType::Int64:  sprintf(valStr, "%lld", *(int64_t*)ptr); break;
-                                case Core::DataType::Uint64: sprintf(valStr, "%llu", *(uint64_t*)ptr); break;
-                                case Core::DataType::Float:  sprintf(valStr, "%.4f", *(float*)ptr); break;
-                                case Core::DataType::Double: sprintf(valStr, "%.8f", *(double*)ptr); break;
-                                case Core::DataType::String: {
-                                    size_t len = (std::min)(typeSize, (size_t)63);
-                                    memcpy(valStr, ptr, len);
-                                    valStr[len] = '\0';
-                                    break;
-                                }
-                                case Core::DataType::AOB: {
-                                    for (size_t k = 0; k < (std::min)(typeSize, (size_t)16); ++k) {
-                                        char b[4]; sprintf(b, "%02X ", ptr[k]);
-                                        strcat(valStr, b);
-                                    }
-                                    if (typeSize > 16) strcat(valStr, "...");
-                                    break;
-                                }
+                        if (i * typeSize < snapshotValues.size()) {
+                            char valStr[128];
+                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr);
+                            ImGui::TextDisabled("%s", valStr);
+                        }
+
+                        // Live Value Column
+                        ImGui::TableSetColumnIndex(2);
+                        std::vector<uint8_t> liveBuf(typeSize);
+                        if (m_pm.ReadMemory(results[i], liveBuf.data(), typeSize)) {
+                            char liveStr[128];
+                            FormatValue(liveBuf.data(), typeSize, liveStr);
+
+                            // Highlight if changed
+                            bool changed = false;
+                            if (i * typeSize < snapshotValues.size()) {
+                                changed = memcmp(liveBuf.data(), &snapshotValues[i * typeSize], typeSize) != 0;
                             }
-                            ImGui::Text("%s", valStr);
+
+                            if (changed) ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "%s", liveStr);
+                            else ImGui::Text("%s", liveStr);
+                        } else {
+                            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "?? (Unreadable)");
                         }
                     }
                 }
@@ -632,32 +674,43 @@ void AppUI::RenderPointerScanTab() {
     }
 
     if (ImGui::BeginChild("PtrResults", ImVec2(0, 0), true)) {
-        auto results = m_ptrScanner.GetResults();
-        if (results.empty()) {
+        if (m_ptrScanner.IsScanning()) {
+            m_groupedPtrResults.clear(); // Clear during active scan
+        } else if (m_groupedPtrResults.empty()) {
+            auto results = m_ptrScanner.GetResults();
+            if (!results.empty()) {
+                for (const auto& chain : results) {
+                    m_groupedPtrResults[chain.moduleName][chain.offsets[0]].push_back(chain);
+                }
+            }
+        }
+
+        if (m_groupedPtrResults.empty() && !m_ptrScanner.IsScanning()) {
             RenderEmptyState("No pointer chains found.", "Try increasing Max Depth or Max Offset.");
         } else {
-            for (const auto& chain : results) {
-                std::stringstream ss;
-                ss << chain.moduleName << "+0x" << std::hex << chain.offsets[0];
-                for (size_t i = 1; i < chain.offsets.size(); ++i) {
-                    ss << " -> 0x" << std::hex << chain.offsets[i];
-                }
-                std::string chainStr = ss.str();
-                if (ImGui::Selectable(chainStr.c_str())) {
-                    // Selection logic could go here
-                }
-                if (ImGui::BeginPopupContextItem()) {
-                    if (ImGui::MenuItem("Copy Pointer Chain")) {
-                        ImGui::SetClipboardText(chainStr.c_str());
-                        PushStatusColor("Pointer chain copied to clipboard!");
+            for (auto& modPair : m_groupedPtrResults) {
+                if (ImGui::TreeNodeEx(modPair.first.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                    for (auto& basePair : modPair.second) {
+                        char baseLabel[64];
+                        sprintf(baseLabel, "Base Offset: 0x%llX (%zu chains)", (unsigned long long)basePair.first, basePair.second.size());
+                        if (ImGui::TreeNode(baseLabel)) {
+                            for (const auto& chain : basePair.second) {
+                                std::stringstream ss;
+                                ss << "Offsets: ";
+                                for (size_t i = 0; i < chain.offsets.size(); ++i) {
+                                    ss << (i == 0 ? "" : " -> ") << "0x" << std::hex << std::uppercase << chain.offsets[i];
+                                }
+                                std::string chainStr = ss.str();
+                                if (ImGui::Selectable(chainStr.c_str())) {
+                                    ImGui::SetClipboardText(chainStr.c_str());
+                                    AddLog("Copied pointer chain to clipboard.", LogSeverity::Info);
+                                }
+                                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to copy full chain");
+                            }
+                            ImGui::TreePop();
+                        }
                     }
-                    // For pointer chains, jumping to hex is more complex as it depends on current memory state
-                    // but we can jump to the resolved address if we had it.
-                    // For now, let's keep it simple.
-                    ImGui::EndPopup();
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Click to copy pointer chain");
+                    ImGui::TreePop();
                 }
             }
         }
@@ -770,6 +823,13 @@ void AppUI::RenderEmptyState(const char* message, const char* suggestion) {
     }
 
     ImGui::EndGroup();
+}
+
+void AppUI::AddToRecentProcesses(const std::string& name) {
+    auto it = std::find(m_recentProcesses.begin(), m_recentProcesses.end(), name);
+    if (it != m_recentProcesses.end()) m_recentProcesses.erase(it);
+    m_recentProcesses.push_front(name);
+    if (m_recentProcesses.size() > 5) m_recentProcesses.pop_back();
 }
 
 void AppUI::JumpToHex(uintptr_t addr) {
