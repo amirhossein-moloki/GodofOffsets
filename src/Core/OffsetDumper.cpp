@@ -94,17 +94,56 @@ std::string OffsetDumper::FormatValue(uintptr_t address, const std::string& type
 bool OffsetDumper::SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results) {
     nlohmann::json j = nlohmann::json::array();
     for (const auto& res : results) {
+        std::stringstream ss;
+        if (!res.moduleName.empty()) {
+            ss << res.moduleName << "+0x" << std::hex << std::uppercase << res.offset;
+        } else {
+            ss << "0x" << std::hex << std::uppercase << res.offset;
+        }
+
         j.push_back({
-            {"offset", res.offset},
+            {"offset", ss.str()},
             {"module", res.moduleName},
             {"name", res.name},
             {"type", res.type},
-            {"value", res.value}
+            {"value", res.value},
+            {"description", res.description}
         });
     }
     std::ofstream o(filename);
     if (!o.is_open()) return false;
     o << std::setw(4) << j << std::endl;
+    return true;
+}
+
+bool OffsetDumper::LoadFromJSON(const std::string& filename, std::vector<OffsetResult>& results) {
+    std::ifstream i(filename);
+    if (!i.is_open()) return false;
+
+    nlohmann::json j;
+    try {
+        i >> j;
+        results.clear();
+        for (const auto& item : j) {
+            OffsetResult res;
+            std::string offsetStr = item["offset"];
+            size_t plusPos = offsetStr.find("+0x");
+            if (plusPos != std::string::npos) {
+                res.offset = std::stoull(offsetStr.substr(plusPos + 3), nullptr, 16);
+            } else {
+                res.offset = std::stoull(offsetStr, nullptr, 16);
+            }
+
+            res.moduleName = item.value("module", "");
+            res.name = item.value("name", "");
+            res.type = item.value("type", "");
+            res.value = item.value("value", "");
+            res.description = item.value("description", "");
+            results.push_back(res);
+        }
+    } catch (...) {
+        return false;
+    }
     return true;
 }
 
