@@ -52,6 +52,7 @@ public:
     void Undo();
 
     std::vector<uintptr_t> GetResults();
+    std::vector<uint8_t> GetResultValues();
     size_t GetResultCount();
     void Reset();
 
