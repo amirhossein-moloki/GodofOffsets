@@ -560,12 +560,19 @@ Core::ScanValue AppUI::GetCurrentScanValue() {
 void AppUI::RenderSignatureTab() {
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35))) {
-        AddLog("Starting signature scan...", LogSeverity::Info);
-        m_status = "Scanning...";
-        bool isVulkan = (std::string(m_processName).find("Vulkan") != std::string::npos);
-        m_scanner.Run(m_sigs, isVulkan);
-        m_status = "Scan Complete";
-        AddLog("Signature scan complete.", LogSeverity::Success);
+        std::thread([this]() {
+            AddLog("Starting signature scan...", LogSeverity::Info);
+            m_status = "Scanning...";
+            bool isVulkan = (std::string(m_processName).find("Vulkan") != std::string::npos);
+            m_scanner.Run(m_sigs, isVulkan);
+            m_status = "Scan Complete";
+            AddLog("Signature scan complete.", LogSeverity::Success);
+        }).detach();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel##Sig", ImVec2(80, 35))) {
+        m_scanner.Cancel();
+        AddLog("Signature scan cancellation requested.", LogSeverity::Warning);
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
@@ -741,6 +748,7 @@ void AppUI::RenderPointerScanTab() {
 
 void AppUI::RenderDumperTab() {
     ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+    ImGui::InputInt("Count", &m_structCount);
     ImGui::InputText("Struct Name", m_structName, sizeof(m_structName));
 
     if (ImGui::Button("Add Field")) {
@@ -783,6 +791,7 @@ void AppUI::RenderDumperTab() {
         char nameId[32]; sprintf(nameId, "Name##%zu", i);
         char offId[32]; sprintf(offId, "Off##%zu", i);
         char typeId[32]; sprintf(typeId, "Type##%zu", i);
+        char remId[32]; sprintf(remId, "X##%zu", i);
 
         ImGui::PushItemWidth(100);
         char fieldName[64];
@@ -796,13 +805,18 @@ void AppUI::RenderDumperTab() {
         int currentType = 0;
         for (int k = 0; k < 4; ++k) if (m_structFields[i].type == types[k]) currentType = k;
         if (ImGui::Combo(typeId, &currentType, types, 4)) m_structFields[i].type = types[currentType];
+        ImGui::SameLine();
+        if (ImGui::Button(remId)) {
+            m_structFields.erase(m_structFields.begin() + i);
+            i--;
+        }
         ImGui::PopItemWidth();
     }
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
         Core::StructDefinition def = { m_structName, m_structFields };
-        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def);
+        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, m_structCount);
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
         AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
@@ -816,6 +830,27 @@ void AppUI::RenderDumperTab() {
             m_status = "Failed to load JSON";
             AddLog("Failed to load JSON: " + std::string(m_structName) + ".json", LogSeverity::Error);
         }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Export offsets.h##Dumper", ImVec2(150, 35))) {
+        ExportToHeader();
+    }
+    ImGui::PopStyleColor();
+
+    ImGui::Separator();
+    ImGui::Text("Binary Range Dump");
+    ImGui::InputScalar("Range Base", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+    ImGui::InputScalar("Range Size", ImGuiDataType_U64, &m_rangeSize, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+    static int rangeTypeIdx = 0;
+    const char* rangeTypes[] = { "uintptr_t", "int32", "uint32", "float", "int64", "uint64", "int16", "uint16", "int8", "uint8" };
+    ImGui::Combo("Data Type##Range", &rangeTypeIdx, rangeTypes, 10);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
+    if (ImGui::Button("Dump Range", ImVec2(200, 35))) {
+        AddLog("Dumping range 0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << m_structBase)).str() + " (size 0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << m_rangeSize)).str() + ")", LogSeverity::Info);
+        m_dumpedResults = m_dumper.DumpRange(m_structBase, (size_t)m_rangeSize, rangeTypes[rangeTypeIdx]);
+        m_dumper.SaveToJSON("range_dump.json", m_dumpedResults);
+        m_status = "Range dumped to range_dump.json";
     }
     ImGui::PopStyleColor();
 
@@ -1089,16 +1124,34 @@ void AppUI::RenderActivityLogTab() {
 
 void AppUI::ExportToHeader() {
     std::ofstream f("offsets.h");
-    f << "#pragma once\n\n";
+    if (!f.is_open()) {
+        AddLog("Failed to create offsets.h", LogSeverity::Error);
+        return;
+    }
+
+    f << "#pragma once\n";
+    f << "// Generated by Universal Offset Dumper\n\n";
     f << "namespace Offsets {\n";
+
+    f << "    // Signature Scan Results\n";
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
             f << "    constexpr unsigned long long " << sig.name << " = 0x"
-              << std::hex << std::uppercase << (sig.result - base) << ";\n";
+              << std::hex << std::uppercase << (sig.result - base) << "; // " << sig.moduleName << "\n";
         }
     }
+
+    if (!m_dumpedResults.empty()) {
+        f << "\n    // Dumped Results (" << m_structName << ")\n";
+        for (const auto& res : m_dumpedResults) {
+            f << "    constexpr unsigned long long " << res.name << " = 0x"
+              << std::hex << std::uppercase << res.offset << "; // " << res.type << " = " << res.value << "\n";
+        }
+    }
+
     f << "}\n";
+    AddLog("Exported offsets.h successfully.", LogSeverity::Success);
 }
 
 } // namespace UI
