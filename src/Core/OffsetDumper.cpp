@@ -63,15 +63,40 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
     return results;
 }
 
-std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def) {
+std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def, int count) {
     std::vector<OffsetResult> results;
 
+    size_t structSize = 0;
     for (const auto& field : def.fields) {
-        uintptr_t fieldAddr = baseAddress + field.offset;
-        std::string value = FormatValue(fieldAddr, field.type);
-        results.push_back({ field.offset, "", field.name, field.type, value });
+        structSize = (std::max)(structSize, field.offset + 8); // Estimate size based on max offset
     }
 
+    for (int i = 0; i < count; ++i) {
+        uintptr_t currentBase = baseAddress + (i * structSize);
+        for (const auto& field : def.fields) {
+            uintptr_t fieldAddr = currentBase + field.offset;
+            std::string value = FormatValue(fieldAddr, field.type);
+            std::string name = field.name;
+            if (count > 1) name += "[" + std::to_string(i) + "]";
+            results.push_back({ (uintptr_t)(i * structSize + field.offset), "", name, field.type, value });
+        }
+    }
+
+    return results;
+}
+
+std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t baseAddress, size_t size, const std::string& type) {
+    std::vector<OffsetResult> results;
+    size_t typeSize = 4;
+    if (type == "int64" || type == "uint64" || type == "uintptr_t" || type == "Pointer") typeSize = 8;
+    else if (type == "int16" || type == "uint16") typeSize = 2;
+    else if (type == "int8" || type == "uint8") typeSize = 1;
+
+    for (size_t offset = 0; offset <= (size >= typeSize ? size - typeSize : 0); offset += typeSize) {
+        uintptr_t addr = baseAddress + offset;
+        std::string value = FormatValue(addr, type);
+        results.push_back({ (uintptr_t)offset, "", "Offset_0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << offset)).str(), type, value });
+    }
     return results;
 }
 
