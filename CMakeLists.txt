@@ -64,6 +64,8 @@ if(WIN32)
         target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS)
     else()
         target_link_options(${PROJECT_NAME} PRIVATE -static -static-libgcc -static-libstdc++ -mwindows)
+        # Ensure static linking for MinGW
+        set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "-static -static-libgcc -static-libstdc++")
     endif()
 endif()
 
