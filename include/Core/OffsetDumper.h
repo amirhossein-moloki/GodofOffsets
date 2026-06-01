@@ -32,7 +32,8 @@ public:
     OffsetDumper(const ProcessManager& pm);
 
     std::vector<OffsetResult> DumpModule(const std::string& moduleName);
-    std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def);
+    std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def, size_t count = 1);
+    std::vector<OffsetResult> DumpRange(uintptr_t start, size_t size, const std::string& type);
     std::vector<OffsetResult> AnalyzeDataSections(const std::string& moduleName);
 
     bool SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results);
