@@ -21,9 +21,9 @@ void AppUI::SetupStyles() {
     float scale = 1.2f; // Base scale factor
     ImGui::GetIO().FontGlobalScale = scale;
 
-    style.WindowPadding = ImVec2(10, 10) * scale;
-    style.FramePadding = ImVec2(8, 6) * scale;
-    style.ItemSpacing = ImVec2(10, 8) * scale;
+    style.WindowPadding = ImVec2(10 * scale, 10 * scale);
+    style.FramePadding = ImVec2(8 * scale, 6 * scale);
+    style.ItemSpacing = ImVec2(10 * scale, 8 * scale);
     style.ScrollbarSize = 14 * scale;
     style.GrabMinSize = 12 * scale;
 
