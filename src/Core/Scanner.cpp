@@ -4,8 +4,35 @@
 #include <thread>
 #include <future>
 #include <iostream>
+#include <array>
+
+#ifdef _WIN32
+#include <intrin.h>
+#endif
 
 namespace Core {
+
+static bool CheckAVX2() {
+#ifdef _WIN32
+    std::array<int, 4> cpui;
+    __cpuid(cpui.data(), 0);
+    if (cpui[0] < 7) return false;
+    __cpuidex(cpui.data(), 7, 0);
+    return (cpui[1] & (1 << 5)) != 0;
+#else
+    return true; // Assume AVX2 for Linux tests
+#endif
+}
+
+static bool CheckSSE42() {
+#ifdef _WIN32
+    std::array<int, 4> cpui;
+    __cpuid(cpui.data(), 1);
+    return (cpui[2] & (1 << 20)) != 0;
+#else
+    return true;
+#endif
+}
 
 Scanner::Scanner(const ProcessManager& pm) : m_pm(pm), m_resolver(pm) {}
 

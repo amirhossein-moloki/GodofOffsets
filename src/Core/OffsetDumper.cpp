@@ -63,15 +63,43 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
     return results;
 }
 
-std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def) {
+std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def, size_t count) {
     std::vector<OffsetResult> results;
 
+    size_t structSize = 0;
     for (const auto& field : def.fields) {
-        uintptr_t fieldAddr = baseAddress + field.offset;
-        std::string value = FormatValue(fieldAddr, field.type);
-        results.push_back({ field.offset, "", field.name, field.type, value });
+        if (field.offset + sizeof(uintptr_t) > structSize) {
+            structSize = field.offset + sizeof(uintptr_t); // Rough estimate if not provided
+        }
     }
 
+    for (size_t i = 0; i < count; ++i) {
+        uintptr_t currentBase = baseAddress + (i * structSize);
+        for (const auto& field : def.fields) {
+            uintptr_t fieldAddr = currentBase + field.offset;
+            std::string value = FormatValue(fieldAddr, field.type);
+            std::string name = def.name;
+            if (count > 1) name += "[" + std::to_string(i) + "]";
+            name += "." + field.name;
+            results.push_back({ field.offset + (i * structSize), "", name, field.type, value });
+        }
+    }
+
+    return results;
+}
+
+std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, size_t size, const std::string& type) {
+    std::vector<OffsetResult> results;
+    size_t step = sizeof(uintptr_t);
+    if (type == "int32" || type == "uint32" || type == "float") step = 4;
+    else if (type == "int16" || type == "uint16") step = 2;
+    else if (type == "int8" || type == "uint8") step = 1;
+
+    for (size_t i = 0; i <= (size >= step ? size - step : 0); i += step) {
+        uintptr_t addr = start + i;
+        std::string val = FormatValue(addr, type);
+        results.push_back({ i, "", "Offset_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << i)).str(), type, val });
+    }
     return results;
 }
 
