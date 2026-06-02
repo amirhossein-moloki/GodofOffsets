@@ -83,6 +83,11 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
             }
             m_currentScan.addresses.clear();
             m_currentScan.values.clear();
+
+            // Optimization: reserve some space if it's a known scan type
+            // or based on typical results.
+            m_currentScan.addresses.reserve(100000);
+            m_currentScan.values.reserve(100000 * sizeof(uint32_t));
         }
 
         auto regions = m_pm.GetRegions();
@@ -148,6 +153,9 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
         }
 
         ScanSnapshot nextResults;
+        nextResults.addresses.reserve(prevScan.addresses.size());
+        nextResults.values.reserve(prevScan.values.size());
+
         size_t total = prevScan.addresses.size();
         size_t step = 1000;
 
@@ -184,6 +192,17 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
     size_t typeSize = GetDataTypeSize(val.type, val);
     if (typeSize == 0 || typeSize > bufferSize) return;
 
+    // Hardening: Temporarily modify memory protection if needed
+    DWORD oldProtect;
+    bool protectionChanged = false;
+#ifdef _WIN32
+    if (m_pm.GetMode() != MemoryMode::Stealth) {
+        if (VirtualProtectEx(m_pm.GetHandle(), (LPVOID)region.baseAddress, region.size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            protectionChanged = true;
+        }
+    }
+#endif
+
     for (size_t offset = 0; offset < region.size; ) {
         if (m_cancelRequested) break;
 
@@ -194,16 +213,88 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
         }
 
         size_t scanLimit = (toRead >= typeSize) ? (toRead - typeSize) : 0;
-        for (size_t i = 0; i <= scanLimit; ++i) {
-            if (CompareValues(buffer.data() + i, nullptr, val, scanType, typeSize)) {
-                localResults.push_back(region.baseAddress + offset + i);
-                localValues.insert(localValues.end(), buffer.data() + i, buffer.data() + i + typeSize);
+
+        // SIMD Optimization for Exact Value Scans (4 and 8 bytes)
+        if (scanType == ScanType::ExactValue && (val.type == DataType::Int32 || val.type == DataType::Uint32 || val.type == DataType::Float)) {
+            uint32_t target;
+            if (val.type == DataType::Int32) target = (uint32_t)std::get<int32_t>(val.value);
+            else if (val.type == DataType::Uint32) target = std::get<uint32_t>(val.value);
+            else target = std::bit_cast<uint32_t>(std::get<float>(val.value));
+
+            __m256i targetVec = _mm256_set1_epi32(target);
+            size_t i = 0;
+            for (; i <= (toRead >= 32 ? toRead - 32 : 0); i += 4) { // Still step by 4 for alignment/simplicity but check 32 bytes
+                __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
+                __m256i cmp = _mm256_cmpeq_epi32(data, targetVec);
+                uint32_t mask = _mm256_movemask_ps(_mm256_castsi256_ps(cmp));
+
+                if (mask != 0) {
+                    for (int k = 0; k < 8; ++k) {
+                        if (mask & (1 << k)) {
+                            localResults.push_back(region.baseAddress + offset + i + (k * 4));
+                            localValues.insert(localValues.end(), buffer.data() + i + (k * 4), buffer.data() + i + (k * 4) + 4);
+                        }
+                    }
+                }
+                if (i + 32 > toRead) break;
+                i += 28; // Already added 4, total 32
+            }
+            // Remainder
+            for (; i <= scanLimit; ++i) {
+                if (*(uint32_t*)(buffer.data() + i) == target) {
+                    localResults.push_back(region.baseAddress + offset + i);
+                    localValues.insert(localValues.end(), buffer.data() + i, buffer.data() + i + 4);
+                }
+            }
+        } else if (scanType == ScanType::ExactValue && (val.type == DataType::Int64 || val.type == DataType::Uint64 || val.type == DataType::Double)) {
+            uint64_t target;
+            if (val.type == DataType::Int64) target = (uint64_t)std::get<int64_t>(val.value);
+            else if (val.type == DataType::Uint64) target = std::get<uint64_t>(val.value);
+            else target = std::bit_cast<uint64_t>(std::get<double>(val.value));
+
+            __m256i targetVec = _mm256_set1_epi64x(target);
+            size_t i = 0;
+            for (; i <= (toRead >= 32 ? toRead - 32 : 0); i += 8) {
+                __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
+                __m256i cmp = _mm256_cmpeq_epi64(data, targetVec);
+                uint32_t mask = _mm256_movemask_pd(_mm256_castsi256_pd(cmp));
+
+                if (mask != 0) {
+                    for (int k = 0; k < 4; ++k) {
+                        if (mask & (1 << k)) {
+                            localResults.push_back(region.baseAddress + offset + i + (k * 8));
+                            localValues.insert(localValues.end(), buffer.data() + i + (k * 8), buffer.data() + i + (k * 8) + 8);
+                        }
+                    }
+                }
+                if (i + 32 > toRead) break;
+                i += 24; // Total 32
+            }
+            // Remainder
+            for (; i <= scanLimit; ++i) {
+                if (*(uint64_t*)(buffer.data() + i) == target) {
+                    localResults.push_back(region.baseAddress + offset + i);
+                    localValues.insert(localValues.end(), buffer.data() + i, buffer.data() + i + 8);
+                }
+            }
+        } else {
+            for (size_t i = 0; i <= scanLimit; ++i) {
+                if (CompareValues(buffer.data() + i, nullptr, val, scanType, typeSize)) {
+                    localResults.push_back(region.baseAddress + offset + i);
+                    localValues.insert(localValues.end(), buffer.data() + i, buffer.data() + i + typeSize);
+                }
             }
         }
 
         if (toRead < bufferSize) break;
         offset += (bufferSize - typeSize + 1);
     }
+
+#ifdef _WIN32
+    if (protectionChanged) {
+        VirtualProtectEx(m_pm.GetHandle(), (LPVOID)region.baseAddress, region.size, oldProtect, &oldProtect);
+    }
+#endif
 }
 
 template<typename T>

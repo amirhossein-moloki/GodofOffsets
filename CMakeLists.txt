@@ -70,7 +70,7 @@ if(WIN32)
 endif()
 
 # Tests
-add_executable(UnitTests tests/Tests.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
+add_executable(UnitTests tests/Tests.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp src/Core/OffsetDumper.cpp)
 target_link_libraries(UnitTests PRIVATE nlohmann_json::nlohmann_json Zydis)
 target_compile_options(UnitTests PRIVATE -mavx2)
 

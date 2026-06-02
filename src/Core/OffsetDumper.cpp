@@ -63,27 +63,49 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
     return results;
 }
 
-std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def) {
+std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def, size_t count) {
     std::vector<OffsetResult> results;
 
-    for (const auto& field : def.fields) {
-        uintptr_t fieldAddr = baseAddress + field.offset;
-        std::string value = FormatValue(fieldAddr, field.type);
-        results.push_back({ field.offset, "", field.name, field.type, value });
+    for (size_t i = 0; i < count; ++i) {
+        uintptr_t currentBase = baseAddress + (i * def.structSize);
+        for (const auto& field : def.fields) {
+            uintptr_t fieldAddr = currentBase + field.offset;
+            std::string value = FormatValue(fieldAddr, field.type);
+            std::string name = (count > 1) ? (def.name + "[" + std::to_string(i) + "]." + field.name) : field.name;
+            results.push_back({ (i * def.structSize) + field.offset, "", name, field.type, value });
+        }
     }
 
     return results;
 }
 
+std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, size_t size, const std::string& type) {
+    std::vector<OffsetResult> results;
+    size_t typeSize = 4;
+    if (type == "int64" || type == "uint64" || type == "double" || type == "uintptr_t" || type == "Pointer") typeSize = 8;
+    else if (type == "int16" || type == "uint16") typeSize = 2;
+    else if (type == "int8" || type == "uint8") typeSize = 1;
+
+    for (size_t offset = 0; offset < size; offset += typeSize) {
+        std::string val = FormatValue(start + offset, type);
+        results.push_back({ offset, "", "Offset_0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << offset)).str(), type, val });
+    }
+    return results;
+}
+
 std::string OffsetDumper::FormatValue(uintptr_t address, const std::string& type) {
     std::stringstream ss;
-    if (type == "int32" || type == "Int32") {
-        ss << m_pm.Read<int32_t>(address);
-    } else if (type == "uint32" || type == "Uint32") {
-        ss << m_pm.Read<uint32_t>(address);
-    } else if (type == "float" || type == "Float") {
-        ss << m_pm.Read<float>(address);
-    } else if (type == "uintptr_t" || type == "Pointer") {
+    if (type == "int8" || type == "Int8") ss << (int)m_pm.Read<int8_t>(address);
+    else if (type == "uint8" || type == "Uint8") ss << (unsigned int)m_pm.Read<uint8_t>(address);
+    else if (type == "int16" || type == "Int16") ss << m_pm.Read<int16_t>(address);
+    else if (type == "uint16" || type == "Uint16") ss << m_pm.Read<uint16_t>(address);
+    else if (type == "int32" || type == "Int32") ss << m_pm.Read<int32_t>(address);
+    else if (type == "uint32" || type == "Uint32") ss << m_pm.Read<uint32_t>(address);
+    else if (type == "int64" || type == "Int64") ss << m_pm.Read<int64_t>(address);
+    else if (type == "uint64" || type == "Uint64") ss << m_pm.Read<uint64_t>(address);
+    else if (type == "float" || type == "Float") ss << m_pm.Read<float>(address);
+    else if (type == "double" || type == "Double") ss << m_pm.Read<double>(address);
+    else if (type == "uintptr_t" || type == "Pointer") {
         ss << "0x" << std::hex << std::uppercase << m_pm.Read<uintptr_t>(address);
     } else {
         ss << "???";

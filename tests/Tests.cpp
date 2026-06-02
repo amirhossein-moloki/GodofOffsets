@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "Core/ProcessManager.h"
 #include "Core/MemoryScanner.h"
+#include "Core/OffsetDumper.h"
 
 // Simple AOB parse test
 void test_aob_parse() {
@@ -43,8 +44,31 @@ void test_history() {
     std::cout << "History mechanism verified via code review." << std::endl;
 }
 
+void test_range_dump() {
+    std::cout << "Testing Range Dump..." << std::endl;
+    Core::ProcessManager pm;
+#ifdef _WIN32
+    pm.Attach(GetCurrentProcessId());
+#else
+    pm.Attach((DWORD)getpid());
+#endif
+    Core::OffsetDumper dumper(pm);
+
+    uint32_t data[] = { 10, 20, 30, 40 };
+    auto results = dumper.DumpRange((uintptr_t)data, sizeof(data), "int32");
+
+    assert(results.size() == 4);
+    assert(results[0].value == "10");
+    assert(results[1].value == "20");
+    assert(results[2].value == "30");
+    assert(results[3].value == "40");
+
+    std::cout << "test_range_dump passed!" << std::endl;
+}
+
 int main() {
     test_aob_parse();
     test_history();
+    test_range_dump();
     return 0;
 }
