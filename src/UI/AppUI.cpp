@@ -740,8 +740,16 @@ void AppUI::RenderPointerScanTab() {
 }
 
 void AppUI::RenderDumperTab() {
-    ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+    ImGui::Text("STRUCTURE DUMPER");
+    ImGui::Separator();
+    ImGui::InputScalar("Base Address##struct", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::InputText("Struct Name", m_structName, sizeof(m_structName));
+
+    static int structSizeInput = 0x100;
+    ImGui::InputScalar("Struct Size (Hex)", ImGuiDataType_U32, &structSizeInput, nullptr, nullptr, "%X", ImGuiInputTextFlags_CharsHexadecimal);
+
+    ImGui::InputInt("Instance Count", &m_structCount);
+    if (m_structCount < 1) m_structCount = 1;
 
     if (ImGui::Button("Add Field")) {
         m_structFields.push_back({"Field_" + std::to_string(m_structFields.size()), "uintptr_t", 0});
@@ -796,13 +804,20 @@ void AppUI::RenderDumperTab() {
         int currentType = 0;
         for (int k = 0; k < 4; ++k) if (m_structFields[i].type == types[k]) currentType = k;
         if (ImGui::Combo(typeId, &currentType, types, 4)) m_structFields[i].type = types[currentType];
+
+        ImGui::SameLine();
+        if (ImGui::Button((std::string("X##") + std::to_string(i)).c_str())) {
+            m_structFields.erase(m_structFields.begin() + i);
+            i--;
+        }
         ImGui::PopItemWidth();
     }
 
+    ImGui::Dummy(ImVec2(0, 5));
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
-        Core::StructDefinition def = { m_structName, m_structFields };
-        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def);
+        Core::StructDefinition def = { m_structName, (size_t)structSizeInput, m_structFields };
+        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, (size_t)m_structCount);
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
         AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
@@ -833,6 +848,22 @@ void AppUI::RenderDumperTab() {
         AddLog("Data section analysis complete. Found " + std::to_string(m_dumpedResults.size()) + " potential pointers.", LogSeverity::Success);
     }
     ImGui::PopStyleColor();
+
+    ImGui::Dummy(ImVec2(0, 15));
+    ImGui::Text("BINARY RANGE DUMP");
+    ImGui::Separator();
+    ImGui::InputScalar("Start Address", ImGuiDataType_U64, &m_rangeStart, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::InputScalar("Size", ImGuiDataType_U64, &m_rangeSize, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+
+    const char* rangeTypes[] = { "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float", "double", "uintptr_t" };
+    ImGui::Combo("Data Type##range", &m_rangeDataTypeIdx, rangeTypes, 11);
+
+    if (ImGui::Button("Dump Range", ImVec2(200, 35))) {
+        m_dumpedResults = m_dumper.DumpRange(m_rangeStart, m_rangeSize, rangeTypes[m_rangeDataTypeIdx]);
+        m_dumper.SaveToJSON("range_dump.json", m_dumpedResults);
+        m_status = "Range dumped to range_dump.json";
+        AddLog("Binary range dump complete.", LogSeverity::Success);
+    }
 
     if (!m_dumpedResults.empty()) {
         ImGui::Separator();

@@ -77,8 +77,14 @@ private:
     // Structure Dump UI
     uintptr_t m_structBase = 0;
     char m_structName[64] = "MyStruct";
+    int m_structCount = 1;
     std::vector<Core::StructField> m_structFields;
     std::vector<Core::OffsetResult> m_dumpedResults;
+
+    // Range Dump UI
+    uintptr_t m_rangeStart = 0;
+    size_t m_rangeSize = 0x1000;
+    int m_rangeDataTypeIdx = 4; // Int32
 
     // Hex Viewer State
     uintptr_t m_hexBase = 0;

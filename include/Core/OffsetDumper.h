@@ -1,5 +1,12 @@
 #pragma once
+
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <cstdint>
+typedef uint32_t DWORD;
+#endif
+
 #include <vector>
 #include <string>
 #include <nlohmann/json.hpp>
@@ -24,6 +31,7 @@ struct StructField {
 
 struct StructDefinition {
     std::string name;
+    size_t structSize;
     std::vector<StructField> fields;
 };
 
@@ -32,7 +40,8 @@ public:
     OffsetDumper(const ProcessManager& pm);
 
     std::vector<OffsetResult> DumpModule(const std::string& moduleName);
-    std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def);
+    std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def, size_t count = 1);
+    std::vector<OffsetResult> DumpRange(uintptr_t start, size_t size, const std::string& type);
     std::vector<OffsetResult> AnalyzeDataSections(const std::string& moduleName);
 
     bool SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results);

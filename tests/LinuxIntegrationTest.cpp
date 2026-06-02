@@ -16,7 +16,11 @@ void dummy_function() {
 void test_memory_scanner() {
     std::cout << "Testing MemoryScanner (Live Process Mapping)..." << std::endl;
     Core::ProcessManager pm;
+#ifdef _WIN32
+    pm.Attach(GetCurrentProcessId());
+#else
     pm.Attach((DWORD)getpid());
+#endif
 
     auto regions = pm.GetRegions();
     std::cout << "Found " << regions.size() << " memory regions in current process." << std::endl;
@@ -63,7 +67,11 @@ void test_memory_scanner() {
 void test_rip_resolution() {
     std::cout << "Testing RIP-relative resolution (Zydis Integration)..." << std::endl;
     Core::ProcessManager pm;
+#ifdef _WIN32
+    pm.Attach(GetCurrentProcessId());
+#else
     pm.Attach((DWORD)getpid());
+#endif
 
     Core::OffsetResolver resolver(pm);
 
