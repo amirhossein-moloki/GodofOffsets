@@ -93,6 +93,7 @@ public:
     HANDLE GetHandle() const { return m_hProcess.Get(); }
     DWORD GetPid() const { return m_pid; }
     MemoryMode GetMode() const { return m_mode; }
+    bool IsTarget64Bit() const { return m_isTarget64Bit; }
 
     bool IsDriverLoaded() const;
 
@@ -123,6 +124,7 @@ private:
     Utils::WinHandle m_hProcess;
     Utils::WinHandle m_hDriver;
     DWORD m_pid;
+    bool m_isTarget64Bit = true;
     MemoryMode m_mode = MemoryMode::Standard;
 
     bool OpenProcessWithStealth(DWORD pid);

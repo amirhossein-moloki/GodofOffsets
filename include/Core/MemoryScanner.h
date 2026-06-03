@@ -60,6 +60,9 @@ public:
     float GetProgress() const { return m_progress; }
     void Cancel();
 
+    void SetAllowProtectionModification(bool allow) { m_allowProtectionModification = allow; }
+    bool GetAllowProtectionModification() const { return m_allowProtectionModification; }
+
 private:
     struct ScanSnapshot {
         std::vector<uintptr_t> addresses;
@@ -73,6 +76,7 @@ private:
 
     std::atomic<bool> m_isScanning{false};
     std::atomic<bool> m_cancelRequested{false};
+    std::atomic<bool> m_allowProtectionModification{false};
     std::atomic<float> m_progress{0.0f};
 
     void ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues);

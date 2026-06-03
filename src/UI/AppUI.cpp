@@ -366,6 +366,17 @@ void AppUI::RenderMemoryScannerTab() {
 
     ImGui::Dummy(ImVec2(0, 5));
     ImGui::PushItemWidth(250);
+    bool allowProtect = m_memScanner.GetAllowProtectionModification();
+    if (ImGui::Checkbox("Modify Memory Protection (Loud)", &allowProtect)) {
+        m_memScanner.SetAllowProtectionModification(allowProtect);
+        if (allowProtect) {
+            AddLog("WARNING: Memory protection modification enabled. This is a LOUD operation.", LogSeverity::Warning);
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Temporarily changes memory protection to PAGE_EXECUTE_READWRITE to scan protected regions.\nWARNING: Easily detectable by Anti-Cheats and EDRs.");
+    }
+
     ImGui::InputText("Primary Value", m_scanValueBuf, sizeof(m_scanValueBuf));
     if (m_selectedScanType == Core::ScanType::Between) {
         ImGui::InputText("Secondary Value", m_scanValueBuf2, sizeof(m_scanValueBuf2));
@@ -743,6 +754,11 @@ void AppUI::RenderDumperTab() {
     ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
     ImGui::InputText("Struct Name", m_structName, sizeof(m_structName));
 
+    static int structCount = 1;
+    static int structSizeInput = 0x100;
+    ImGui::InputInt("Instance Count", &structCount);
+    ImGui::InputInt("Struct Size (Hex)", &structSizeInput, 1, 100, ImGuiInputTextFlags_CharsHexadecimal);
+
     if (ImGui::Button("Add Field")) {
         m_structFields.push_back({"Field_" + std::to_string(m_structFields.size()), "uintptr_t", 0});
     }
@@ -797,12 +813,17 @@ void AppUI::RenderDumperTab() {
         for (int k = 0; k < 4; ++k) if (m_structFields[i].type == types[k]) currentType = k;
         if (ImGui::Combo(typeId, &currentType, types, 4)) m_structFields[i].type = types[currentType];
         ImGui::PopItemWidth();
+        ImGui::SameLine();
+        if (ImGui::Button((std::string("Remove##") + std::to_string(i)).c_str())) {
+            m_structFields.erase(m_structFields.begin() + i);
+            break;
+        }
     }
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
-        Core::StructDefinition def = { m_structName, m_structFields };
-        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def);
+        Core::StructDefinition def = { m_structName, (size_t)structSizeInput, m_structFields };
+        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, structCount);
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
         AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
@@ -818,6 +839,24 @@ void AppUI::RenderDumperTab() {
         }
     }
     ImGui::PopStyleColor();
+
+    ImGui::Separator();
+    ImGui::Text("Binary Range Dump");
+    static uintptr_t rangeStart = 0;
+    static int rangeSize = 1024;
+    static int rangeTypeIdx = 0;
+    const char* rangeTypes[] = { "uintptr_t", "int32", "uint32", "float", "int64", "uint64", "double", "int16", "uint16", "int8", "uint8" };
+
+    ImGui::InputScalar("Start Address", ImGuiDataType_U64, &rangeStart, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+    ImGui::InputInt("Size (Bytes)", &rangeSize);
+    ImGui::Combo("Data Type##Range", &rangeTypeIdx, rangeTypes, 11);
+
+    if (ImGui::Button("Dump Range", ImVec2(200, 35))) {
+        AddLog("Dumping memory range starting at 0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << rangeStart)).str(), LogSeverity::Info);
+        m_dumpedResults = m_dumper.DumpRange(rangeStart, (size_t)rangeSize, rangeTypes[rangeTypeIdx]);
+        m_status = "Range dumped. " + std::to_string(m_dumpedResults.size()) + " items.";
+        AddLog("Range dump complete.", LogSeverity::Success);
+    }
 
     ImGui::Separator();
     ImGui::Text("Automated Data Section Analysis");
@@ -1091,6 +1130,8 @@ void AppUI::ExportToHeader() {
     std::ofstream f("offsets.h");
     f << "#pragma once\n\n";
     f << "namespace Offsets {\n";
+
+    f << "    // Signature Results\n";
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
@@ -1098,6 +1139,25 @@ void AppUI::ExportToHeader() {
               << std::hex << std::uppercase << (sig.result - base) << ";\n";
         }
     }
+
+    if (!m_dumpedResults.empty()) {
+        f << "\n    // Dumped Structure/Range Values\n";
+        for (const auto& res : m_dumpedResults) {
+            // Clean name for C++ variable
+            std::string cleanName = res.name;
+            std::replace(cleanName.begin(), cleanName.end(), ' ', '_');
+            std::replace(cleanName.begin(), cleanName.end(), '[', '_');
+            std::replace(cleanName.begin(), cleanName.end(), ']', '_');
+            std::replace(cleanName.begin(), cleanName.end(), '.', '_');
+            std::replace(cleanName.begin(), cleanName.end(), '+', '_');
+
+            f << "    // " << res.name << " (" << res.type << ")\n";
+            f << "    // Value: " << res.value << "\n";
+            f << "    constexpr unsigned long long " << cleanName << " = 0x"
+              << std::hex << std::uppercase << res.offset << ";\n";
+        }
+    }
+
     f << "}\n";
 }
 
