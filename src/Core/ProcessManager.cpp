@@ -58,7 +58,18 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
 
 #ifdef _WIN32
     if (m_mode == MemoryMode::Stealth) {
-        return OpenProcessWithStealth(m_pid);
+        bool ok = OpenProcessWithStealth(m_pid);
+        if (ok) {
+            // Determine bitness via query if possible, or assume 64
+            HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+            if (hProc) {
+                BOOL wow64 = FALSE;
+                IsWow64Process(hProc, &wow64);
+                m_isTarget64Bit = !wow64;
+                CloseHandle(hProc);
+            }
+        }
+        return ok;
     } else {
         m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
 
@@ -66,6 +77,12 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
             if (EnableDebugPrivilege()) {
                 m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
             }
+        }
+
+        if (m_hProcess.IsValid()) {
+            BOOL wow64 = FALSE;
+            IsWow64Process(m_hProcess, &wow64);
+            m_isTarget64Bit = !wow64;
         }
 
         return m_hProcess.IsValid();

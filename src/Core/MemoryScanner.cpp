@@ -149,9 +149,11 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
 
         ScanSnapshot nextResults;
         size_t total = prevScan.addresses.size();
-        size_t step = 1000;
+        nextResults.addresses.reserve(total / 2); // Heuristic reserve
 
+        size_t step = 1000;
         size_t typeSize = GetDataTypeSize(val.type, val);
+        nextResults.values.reserve(nextResults.addresses.capacity() * typeSize);
         std::vector<uint8_t> buffer(typeSize);
 
         for (size_t i = 0; i < total; i += step) {
@@ -179,10 +181,25 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
 }
 
 void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues) {
+#ifdef _WIN32
+    DWORD oldProtect;
+    bool protectionChanged = false;
+    if (m_allowProtectionModification && !(region.protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE))) {
+        if (VirtualProtectEx(m_pm.GetHandle(), (LPVOID)region.baseAddress, region.size, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            protectionChanged = true;
+        }
+    }
+#endif
+
     const size_t bufferSize = 64 * 1024;
     std::vector<uint8_t> buffer(bufferSize);
     size_t typeSize = GetDataTypeSize(val.type, val);
-    if (typeSize == 0 || typeSize > bufferSize) return;
+    if (typeSize == 0 || typeSize > bufferSize) {
+#ifdef _WIN32
+        if (protectionChanged) VirtualProtectEx(m_pm.GetHandle(), (LPVOID)region.baseAddress, region.size, oldProtect, &oldProtect);
+#endif
+        return;
+    }
 
     for (size_t offset = 0; offset < region.size; ) {
         if (m_cancelRequested) break;
@@ -204,6 +221,12 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
         if (toRead < bufferSize) break;
         offset += (bufferSize - typeSize + 1);
     }
+
+#ifdef _WIN32
+    if (protectionChanged) {
+        VirtualProtectEx(m_pm.GetHandle(), (LPVOID)region.baseAddress, region.size, oldProtect, &oldProtect);
+    }
+#endif
 }
 
 template<typename T>
