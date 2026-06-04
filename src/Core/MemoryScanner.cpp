@@ -9,7 +9,33 @@
 #include <bit>
 #include <future>
 
+#ifdef _MSC_VER
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+
 namespace Core {
+
+static void GetCPUID(int info[4], int ax) {
+#ifdef _MSC_VER
+    __cpuidex(info, ax, 0);
+#else
+    __cpuid_count(ax, 0, info[0], info[1], info[2], info[3]);
+#endif
+}
+
+static bool SupportsAVX2() {
+    int info[4];
+    GetCPUID(info, 7);
+    return (info[1] & (1 << 5)) != 0;
+}
+
+static bool SupportsSSE42() {
+    int info[4];
+    GetCPUID(info, 1);
+    return (info[2] & (1 << 20)) != 0;
+}
 
 MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm) {}
 
@@ -69,10 +95,10 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
     }
 }
 
-void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
+void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType, bool modifyProtection) {
     if (m_isScanning) return;
 
-    std::thread([this, val, scanType]() {
+    m_scanFuture = std::async(std::launch::async, [this, val, scanType, modifyProtection]() {
         m_isScanning = true;
         m_cancelRequested = false;
 
@@ -102,13 +128,13 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
 
             const auto& region = regions[i];
 
-            threads.push_back(std::thread([this, region, val, scanType, &localResultsMutex, &allResults, &scannedSize, totalSize]() {
+            threads.push_back(std::thread([this, region, val, scanType, modifyProtection, &localResultsMutex, &allResults, &scannedSize, totalSize]() {
                 std::vector<uintptr_t> localAddrs;
                 std::vector<uint8_t> localVals;
                 if (val.type == DataType::AOB) {
                     AOBScan(region, std::get<std::string>(val.value), localAddrs, localVals);
                 } else {
-                    ScanRegion(region, val, scanType, localAddrs, localVals);
+                    ScanRegion(region, val, scanType, localAddrs, localVals, modifyProtection);
                 }
 
                 std::lock_guard<std::mutex> lock(localResultsMutex);
@@ -130,13 +156,13 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType) {
             m_currentScan = std::move(allResults);
         }
         m_isScanning = false;
-    }).detach();
+    });
 }
 
-void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
+void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modifyProtection) {
     if (m_isScanning) return;
 
-    std::thread([this, val, scanType]() {
+    m_scanFuture = std::async(std::launch::async, [this, val, scanType, modifyProtection]() {
         m_isScanning = true;
         m_cancelRequested = false;
 
@@ -160,7 +186,7 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
             size_t end = (std::min)(i + step, total);
             for (size_t j = i; j < end; ++j) {
                 uintptr_t addr = prevScan.addresses[j];
-                if (m_pm.ReadMemory(addr, buffer.data(), typeSize)) {
+                if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
                     if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
                         nextResults.addresses.push_back(addr);
                         nextResults.values.insert(nextResults.values.end(), buffer.begin(), buffer.end());
@@ -175,26 +201,94 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType) {
             m_currentScan = std::move(nextResults);
         }
         m_isScanning = false;
-    }).detach();
+    });
 }
 
-void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues) {
+void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues, bool modifyProtection) {
     const size_t bufferSize = 64 * 1024;
     std::vector<uint8_t> buffer(bufferSize);
     size_t typeSize = GetDataTypeSize(val.type, val);
     if (typeSize == 0 || typeSize > bufferSize) return;
 
+    bool useSIMD = (scanType == ScanType::ExactValue && (typeSize == 4 || typeSize == 8));
+    bool hasAVX2 = useSIMD && SupportsAVX2();
+    bool hasSSE42 = useSIMD && SupportsSSE42();
+
     for (size_t offset = 0; offset < region.size; ) {
         if (m_cancelRequested) break;
 
         size_t toRead = (std::min)(bufferSize, region.size - offset);
-        if (!m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead)) {
+        if (!m_pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead, modifyProtection)) {
             offset += bufferSize;
             continue;
         }
 
         size_t scanLimit = (toRead >= typeSize) ? (toRead - typeSize) : 0;
-        for (size_t i = 0; i <= scanLimit; ++i) {
+        size_t i = 0;
+
+        if (hasAVX2 && toRead >= 32) {
+            if (typeSize == 4) {
+                uint32_t target = std::get<uint32_t>(val.value);
+                __m256i targetVec = _mm256_set1_epi32(target);
+                for (; i <= toRead - 32; i += 32) {
+                    __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
+                    __m256i cmp = _mm256_cmpeq_epi32(data, targetVec);
+                    uint32_t bitmask = (uint32_t)_mm256_movemask_ps(_mm256_castsi256_ps(cmp));
+                    while (bitmask != 0) {
+                        int pos = std::countr_zero(bitmask);
+                        localResults.push_back(region.baseAddress + offset + i + (pos * 4));
+                        localValues.insert(localValues.end(), buffer.data() + i + (pos * 4), buffer.data() + i + (pos * 4) + 4);
+                        bitmask &= ~(1 << pos);
+                    }
+                }
+            } else if (typeSize == 8) {
+                uint64_t target = std::get<uint64_t>(val.value);
+                __m256i targetVec = _mm256_set1_epi64x(target);
+                for (; i <= toRead - 32; i += 32) {
+                    __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
+                    __m256i cmp = _mm256_cmpeq_epi64(data, targetVec);
+                    uint32_t bitmask = (uint32_t)_mm256_movemask_pd(_mm256_castsi256_pd(cmp));
+                    while (bitmask != 0) {
+                        int pos = std::countr_zero(bitmask);
+                        localResults.push_back(region.baseAddress + offset + i + (pos * 8));
+                        localValues.insert(localValues.end(), buffer.data() + i + (pos * 8), buffer.data() + i + (pos * 8) + 8);
+                        bitmask &= ~(1 << pos);
+                    }
+                }
+            }
+        } else if (hasSSE42 && toRead >= 16) {
+            if (typeSize == 4) {
+                uint32_t target = std::get<uint32_t>(val.value);
+                __m128i targetVec = _mm_set1_epi32(target);
+                for (; i <= toRead - 16; i += 16) {
+                    __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
+                    __m128i cmp = _mm_cmpeq_epi32(data, targetVec);
+                    uint32_t bitmask = (uint32_t)_mm_movemask_ps(_mm_castsi128_ps(cmp));
+                    while (bitmask != 0) {
+                        int pos = std::countr_zero(bitmask);
+                        localResults.push_back(region.baseAddress + offset + i + (pos * 4));
+                        localValues.insert(localValues.end(), buffer.data() + i + (pos * 4), buffer.data() + i + (pos * 4) + 4);
+                        bitmask &= ~(1 << pos);
+                    }
+                }
+            } else if (typeSize == 8) {
+                uint64_t target = std::get<uint64_t>(val.value);
+                __m128i targetVec = _mm_set1_epi64x(target);
+                for (; i <= toRead - 16; i += 16) {
+                    __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
+                    __m128i cmp = _mm_cmpeq_epi64(data, targetVec);
+                    uint32_t bitmask = (uint32_t)_mm_movemask_pd(_mm_castsi128_pd(cmp));
+                    while (bitmask != 0) {
+                        int pos = std::countr_zero(bitmask);
+                        localResults.push_back(region.baseAddress + offset + i + (pos * 8));
+                        localValues.insert(localValues.end(), buffer.data() + i + (pos * 8), buffer.data() + i + (pos * 8) + 8);
+                        bitmask &= ~(1 << pos);
+                    }
+                }
+            }
+        }
+
+        for (; i <= scanLimit; ++i) {
             if (CompareValues(buffer.data() + i, nullptr, val, scanType, typeSize)) {
                 localResults.push_back(region.baseAddress + offset + i);
                 localValues.insert(localValues.end(), buffer.data() + i, buffer.data() + i + typeSize);
@@ -283,61 +377,64 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
         if (mask[0]) {
             uint8_t firstByte = bytes[0];
 
-            // Try AVX2 if possible (assuming AVX2 is available as per memory instructions)
-            // In a real-world scenario, we would use a CPU feature check here.
-            __m256i firstByteVec256 = _mm256_set1_epi8(firstByte);
+            // Try AVX2 if possible
+            bool hasAVX2 = SupportsAVX2();
+            bool hasSSE42 = SupportsSSE42();
+
             size_t i = 0;
-            for (; i <= (toRead >= 32 ? toRead - 32 : 0); i += 32) {
-                __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
-                __m256i cmp = _mm256_cmpeq_epi8(data, firstByteVec256);
-                uint32_t bitmask = _mm256_movemask_epi8(cmp);
+            if (hasAVX2 && toRead >= 32) {
+                __m256i firstByteVec256 = _mm256_set1_epi8(firstByte);
+                for (; i <= toRead - 32; i += 32) {
+                    __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
+                    __m256i cmp = _mm256_cmpeq_epi8(data, firstByteVec256);
+                    uint32_t bitmask = (uint32_t)_mm256_movemask_epi8(cmp);
 
-                while (bitmask != 0) {
-                    int pos = std::countr_zero(bitmask);
-                    if (i + pos <= toRead - bytes.size()) {
-                        bool found = true;
-                        for (size_t k = 1; k < bytes.size(); ++k) {
-                            if (mask[k] && buffer[i + pos + k] != bytes[k]) {
-                                found = false;
-                                break;
+                    while (bitmask != 0) {
+                        int pos = std::countr_zero(bitmask);
+                        if (i + pos <= toRead - bytes.size()) {
+                            bool found = true;
+                            for (size_t k = 1; k < bytes.size(); ++k) {
+                                if (mask[k] && buffer[i + pos + k] != bytes[k]) {
+                                    found = false;
+                                    break;
+                                }
+                            }
+                            if (found) {
+                                results.push_back(region.baseAddress + offset + i + pos);
+                                values.insert(values.end(), buffer.data() + i + pos, buffer.data() + i + pos + bytes.size());
                             }
                         }
-                        if (found) {
-                            results.push_back(region.baseAddress + offset + i + pos);
-                            values.insert(values.end(), buffer.data() + i + pos, buffer.data() + i + pos + bytes.size());
-                        }
+                        bitmask &= ~(1 << pos);
                     }
-                    bitmask &= ~(1 << pos);
+                }
+            } else if (hasSSE42 && toRead >= 16) {
+                __m128i firstByteVec128 = _mm_set1_epi8(firstByte);
+                for (; i <= toRead - 16; i += 16) {
+                    __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
+                    __m128i cmp = _mm_cmpeq_epi8(data, firstByteVec128);
+                    uint32_t bitmask = (uint32_t)_mm_movemask_epi8(cmp);
+
+                    while (bitmask != 0) {
+                        int pos = std::countr_zero(bitmask);
+                        if (i + pos <= toRead - bytes.size()) {
+                            bool found = true;
+                            for (size_t k = 1; k < bytes.size(); ++k) {
+                                if (mask[k] && buffer[i + pos + k] != bytes[k]) {
+                                    found = false;
+                                    break;
+                                }
+                            }
+                            if (found) {
+                                results.push_back(region.baseAddress + offset + i + pos);
+                                values.insert(values.end(), buffer.data() + i + pos, buffer.data() + i + pos + bytes.size());
+                            }
+                        }
+                        bitmask &= ~(1 << pos);
+                    }
                 }
             }
 
-            // Fallback to SSE4.2 for the remainder
-            __m128i firstByteVec128 = _mm_set1_epi8(firstByte);
-            for (; i <= (toRead >= 16 ? toRead - 16 : 0); i += 16) {
-                __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
-                __m128i cmp = _mm_cmpeq_epi8(data, firstByteVec128);
-                uint32_t bitmask = (uint32_t)_mm_movemask_epi8(cmp);
-
-                while (bitmask != 0) {
-                    int pos = std::countr_zero(bitmask);
-                    if (i + pos <= toRead - bytes.size()) {
-                        bool found = true;
-                        for (size_t k = 1; k < bytes.size(); ++k) {
-                            if (mask[k] && buffer[i + pos + k] != bytes[k]) {
-                                found = false;
-                                break;
-                            }
-                        }
-                        if (found) {
-                            results.push_back(region.baseAddress + offset + i + pos);
-                            values.insert(values.end(), buffer.data() + i + pos, buffer.data() + i + pos + bytes.size());
-                        }
-                    }
-                    bitmask &= ~(1 << pos);
-                }
-            }
-
-            // Remainder for the last < 16 bytes
+            // Remainder for the last bytes
             for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
                 if (buffer[i] == firstByte) {
                     bool found = true;

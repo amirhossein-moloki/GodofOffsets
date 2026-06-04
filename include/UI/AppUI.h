@@ -66,6 +66,7 @@ private:
     Core::ScanType m_selectedScanType = Core::ScanType::ExactValue;
     char m_scanValueBuf[128] = "0";
     char m_scanValueBuf2[128] = "0";
+    bool m_modifyProtection = false;
 
     // Pointer Scan UI
     uintptr_t m_ptrTarget = 0;
@@ -77,8 +78,15 @@ private:
     // Structure Dump UI
     uintptr_t m_structBase = 0;
     char m_structName[64] = "MyStruct";
+    int m_structCount = 1;
+    size_t m_structSize = 0;
     std::vector<Core::StructField> m_structFields;
     std::vector<Core::OffsetResult> m_dumpedResults;
+
+    // Range Dump UI
+    uintptr_t m_rangeStart = 0;
+    uintptr_t m_rangeEnd = 0;
+    char m_rangeType[32] = "uint32";
 
     // Hex Viewer State
     uintptr_t m_hexBase = 0;

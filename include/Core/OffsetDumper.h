@@ -25,6 +25,7 @@ struct StructField {
 struct StructDefinition {
     std::string name;
     std::vector<StructField> fields;
+    size_t structSize = 0;
 };
 
 class OffsetDumper {
@@ -32,7 +33,8 @@ public:
     OffsetDumper(const ProcessManager& pm);
 
     std::vector<OffsetResult> DumpModule(const std::string& moduleName);
-    std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def);
+    std::vector<OffsetResult> DumpRange(uintptr_t start, uintptr_t end, const std::string& type);
+    std::vector<OffsetResult> DumpStructure(uintptr_t baseAddress, const StructDefinition& def, int count = 1);
     std::vector<OffsetResult> AnalyzeDataSections(const std::string& moduleName);
 
     bool SaveToJSON(const std::string& filename, const std::vector<OffsetResult>& results);

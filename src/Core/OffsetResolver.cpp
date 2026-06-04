@@ -21,14 +21,7 @@ uintptr_t OffsetResolver::ResolveWithZydis(uintptr_t address) {
     ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
 
     // Determine target architecture
-    bool is64Bit = true;
-    auto processes = ProcessManager::GetProcessList();
-    for (const auto& p : processes) {
-        if (p.pid == m_pm.GetPid()) {
-            is64Bit = p.is64Bit;
-            break;
-        }
-    }
+    bool is64Bit = m_pm.IsTarget64Bit();
 
     ZydisDecoder* decoder = is64Bit ? &m_decoder64 : &m_decoder32;
 
