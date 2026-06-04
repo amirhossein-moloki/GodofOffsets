@@ -366,18 +366,21 @@ void AppUI::RenderMemoryScannerTab() {
 
     ImGui::Dummy(ImVec2(0, 5));
     ImGui::PushItemWidth(250);
-    ImGui::InputText("Primary Value", m_scanValueBuf, sizeof(m_scanValueBuf));
+    ImGui::InputText("Primary Value", m_scanValueBuf, sizeof(m_scanValueBuf), ImGuiInputTextFlags_EnterReturnsTrue);
     if (m_selectedScanType == Core::ScanType::Between) {
-        ImGui::InputText("Secondary Value", m_scanValueBuf2, sizeof(m_scanValueBuf2));
+        ImGui::InputText("Secondary Value", m_scanValueBuf2, sizeof(m_scanValueBuf2), ImGuiInputTextFlags_EnterReturnsTrue);
     }
     ImGui::PopItemWidth();
+
+    ImGui::Checkbox("Modify Memory Protection (Loud)", &m_modifyProtection);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Temporarily changes memory protection to PAGE_EXECUTE_READWRITE to read protected regions.\nUse with caution as this can be detected by Anti-Cheats.");
 
     ImGui::Dummy(ImVec2(0, 10));
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("First Scan", ImVec2(120, 35))) {
         AddLog("Starting First Scan...", LogSeverity::Info);
-        m_memScanner.FirstScan(GetCurrentScanValue(), m_selectedScanType);
+        m_memScanner.FirstScan(GetCurrentScanValue(), m_selectedScanType, m_modifyProtection);
         AddLog("First Scan complete. Results: " + std::to_string(m_memScanner.GetResultCount()), LogSeverity::Success);
     }
     ImGui::PopStyleColor();
@@ -387,7 +390,7 @@ void AppUI::RenderMemoryScannerTab() {
     ImGui::PushStyleColor(ImGuiCol_Button, m_accentColor);
     if (ImGui::Button("Next Scan", ImVec2(120, 35))) {
         AddLog("Starting Next Scan...", LogSeverity::Info);
-        m_memScanner.NextScan(GetCurrentScanValue(), m_selectedScanType);
+        m_memScanner.NextScan(GetCurrentScanValue(), m_selectedScanType, m_modifyProtection);
         AddLog("Next Scan complete. Results: " + std::to_string(m_memScanner.GetResultCount()), LogSeverity::Success);
     }
     ImGui::PopStyleColor();
@@ -740,8 +743,11 @@ void AppUI::RenderPointerScanTab() {
 }
 
 void AppUI::RenderDumperTab() {
-    ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
-    ImGui::InputText("Struct Name", m_structName, sizeof(m_structName));
+    if (ImGui::CollapsingHeader("Structure Dumper", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::InputText("Struct Name", m_structName, sizeof(m_structName), ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::InputInt("Instance Count", &m_structCount);
+    ImGui::InputScalar("Struct Size (Manual)", ImGuiDataType_U64, &m_structSize, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
 
     if (ImGui::Button("Add Field")) {
         m_structFields.push_back({"Field_" + std::to_string(m_structFields.size()), "uintptr_t", 0});
@@ -783,6 +789,7 @@ void AppUI::RenderDumperTab() {
         char nameId[32]; sprintf(nameId, "Name##%zu", i);
         char offId[32]; sprintf(offId, "Off##%zu", i);
         char typeId[32]; sprintf(typeId, "Type##%zu", i);
+        char removeId[32]; sprintf(removeId, "X##%zu", i);
 
         ImGui::PushItemWidth(100);
         char fieldName[64];
@@ -792,17 +799,22 @@ void AppUI::RenderDumperTab() {
         ImGui::SameLine();
         ImGui::InputScalar(offId, ImGuiDataType_U64, &m_structFields[i].offset, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
         ImGui::SameLine();
-        const char* types[] = { "uintptr_t", "int32", "uint32", "float" };
+        const char* types[] = { "uintptr_t", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float", "double" };
         int currentType = 0;
-        for (int k = 0; k < 4; ++k) if (m_structFields[i].type == types[k]) currentType = k;
-        if (ImGui::Combo(typeId, &currentType, types, 4)) m_structFields[i].type = types[currentType];
+        for (int k = 0; k < 11; ++k) if (m_structFields[i].type == types[k]) currentType = k;
+        if (ImGui::Combo(typeId, &currentType, types, 11)) m_structFields[i].type = types[currentType];
+        ImGui::SameLine();
+        if (ImGui::Button(removeId)) {
+            m_structFields.erase(m_structFields.begin() + i);
+            i--;
+        }
         ImGui::PopItemWidth();
     }
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
-        Core::StructDefinition def = { m_structName, m_structFields };
-        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def);
+        Core::StructDefinition def = { m_structName, m_structFields, m_structSize };
+        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, m_structCount);
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
         AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
@@ -818,11 +830,22 @@ void AppUI::RenderDumperTab() {
         }
     }
     ImGui::PopStyleColor();
+    }
 
-    ImGui::Separator();
-    ImGui::Text("Automated Data Section Analysis");
+    if (ImGui::CollapsingHeader("Binary Range Dump")) {
+        ImGui::InputScalar("Start Address", ImGuiDataType_U64, &m_rangeStart, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+        ImGui::InputScalar("End Address", ImGuiDataType_U64, &m_rangeEnd, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+        ImGui::InputText("Data Type (e.g. float, int32)", m_rangeType, sizeof(m_rangeType));
+        if (ImGui::Button("Dump Range", ImVec2(200, 35))) {
+            m_dumpedResults = m_dumper.DumpRange(m_rangeStart, m_rangeEnd, m_rangeType);
+            m_dumper.SaveToJSON("range_dump.json", m_dumpedResults);
+            AddLog("Range dump complete.", LogSeverity::Success);
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
     static char targetModule[64] = "RainbowSix.exe";
-    ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule));
+    ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Analyze Data Sections", ImVec2(200, 35))) {

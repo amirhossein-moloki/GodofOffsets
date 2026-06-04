@@ -11,6 +11,7 @@
 #include <functional>
 #include <stack>
 #include <mutex>
+#include <future>
 #include "Core/ProcessManager.h"
 
 namespace Core {
@@ -47,8 +48,8 @@ class MemoryScanner {
 public:
     MemoryScanner(const ProcessManager& pm);
 
-    void FirstScan(const ScanValue& val, ScanType scanType);
-    void NextScan(const ScanValue& val, ScanType scanType);
+    void FirstScan(const ScanValue& val, ScanType scanType, bool modifyProtection = false);
+    void NextScan(const ScanValue& val, ScanType scanType, bool modifyProtection = false);
     void Undo();
 
     std::vector<uintptr_t> GetResults();
@@ -74,8 +75,9 @@ private:
     std::atomic<bool> m_isScanning{false};
     std::atomic<bool> m_cancelRequested{false};
     std::atomic<float> m_progress{0.0f};
+    std::future<void> m_scanFuture;
 
-    void ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues);
+    void ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues, bool modifyProtection = false);
     bool CompareValues(const void* current, const void* previous, const ScanValue& val, ScanType scanType, size_t size);
 
     void AOBScan(const RegionInfo& region, const std::string& pattern, std::vector<uintptr_t>& results, std::vector<uint8_t>& values);

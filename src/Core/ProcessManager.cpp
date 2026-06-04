@@ -58,7 +58,12 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
 
 #ifdef _WIN32
     if (m_mode == MemoryMode::Stealth) {
-        return OpenProcessWithStealth(m_pid);
+        bool success = OpenProcessWithStealth(m_pid);
+        if (success) {
+            // Assume 64-bit for stealth unless we find a way to check
+            m_is64Bit = true;
+        }
+        return success;
     } else {
         m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
 
@@ -68,10 +73,18 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
             }
         }
 
+        if (m_hProcess.IsValid()) {
+            BOOL wow64 = FALSE;
+            if (IsWow64Process(m_hProcess, &wow64)) {
+                m_is64Bit = !wow64;
+            }
+        }
+
         return m_hProcess.IsValid();
     }
 #else
     m_hProcess = Utils::WinHandle((HANDLE)(intptr_t)pid);
+    m_is64Bit = true;
     return true;
 #endif
 }
@@ -347,7 +360,7 @@ ModuleInfo ProcessManager::GetModuleInfo(const std::string& moduleName) const {
     return {};
 }
 
-bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size) const {
+bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bool modifyProtection) const {
 #ifdef _WIN32
     if (m_mode == MemoryMode::Stealth && m_hDriver.IsValid()) {
         DUMPER_READ_MEMORY_REQUEST request;
@@ -361,8 +374,20 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size) co
     }
 
     if (!m_hProcess.IsValid()) return false;
+
+    DWORD oldProtect = 0;
+    if (modifyProtection) {
+        VirtualProtectEx(m_hProcess, (LPVOID)address, size, PAGE_EXECUTE_READWRITE, &oldProtect);
+    }
+
     SIZE_T bytesRead;
-    return ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
+    bool success = ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
+
+    if (modifyProtection && oldProtect != 0) {
+        VirtualProtectEx(m_hProcess, (LPVOID)address, size, oldProtect, &oldProtect);
+    }
+
+    return success;
 #else
     // For Linux testing, we can use local memory if pid is our own pid
     if (m_pid == (DWORD)getpid()) {

@@ -93,6 +93,7 @@ public:
     HANDLE GetHandle() const { return m_hProcess.Get(); }
     DWORD GetPid() const { return m_pid; }
     MemoryMode GetMode() const { return m_mode; }
+    bool IsTarget64Bit() const { return m_is64Bit; }
 
     bool IsDriverLoaded() const;
 
@@ -101,7 +102,7 @@ public:
     uintptr_t GetModuleBase(const std::string& moduleName) const;
     ModuleInfo GetModuleInfo(const std::string& moduleName) const;
 
-    bool ReadMemory(uintptr_t address, void* buffer, size_t size) const;
+    bool ReadMemory(uintptr_t address, void* buffer, size_t size, bool modifyProtection = false) const;
     bool WriteMemory(uintptr_t address, const void* buffer, size_t size) const;
 
     template<typename T>
@@ -123,6 +124,7 @@ private:
     Utils::WinHandle m_hProcess;
     Utils::WinHandle m_hDriver;
     DWORD m_pid;
+    bool m_is64Bit = true;
     MemoryMode m_mode = MemoryMode::Standard;
 
     bool OpenProcessWithStealth(DWORD pid);

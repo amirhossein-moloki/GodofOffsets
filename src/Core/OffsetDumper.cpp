@@ -63,13 +63,37 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
     return results;
 }
 
-std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def) {
+std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, uintptr_t end, const std::string& type) {
+    std::vector<OffsetResult> results;
+    size_t typeSize = 4;
+    if (type.find("64") != std::string::npos || type == "double" || type == "uintptr_t") typeSize = 8;
+    else if (type.find("16") != std::string::npos) typeSize = 2;
+    else if (type.find("8") != std::string::npos) typeSize = 1;
+
+    for (uintptr_t addr = start; addr < end; addr += typeSize) {
+        std::string val = FormatValue(addr, type);
+        results.push_back({ addr - start, "", "offset_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << (addr - start))).str(), type, val });
+    }
+    return results;
+}
+
+std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def, int count) {
     std::vector<OffsetResult> results;
 
-    for (const auto& field : def.fields) {
-        uintptr_t fieldAddr = baseAddress + field.offset;
-        std::string value = FormatValue(fieldAddr, field.type);
-        results.push_back({ field.offset, "", field.name, field.type, value });
+    size_t stride = def.structSize > 0 ? def.structSize : 0;
+    if (stride == 0 && !def.fields.empty()) {
+        for (const auto& f : def.fields) stride = (std::max)(stride, f.offset + 8);
+    }
+
+    for (int i = 0; i < count; ++i) {
+        uintptr_t currentBase = baseAddress + (i * stride);
+        for (const auto& field : def.fields) {
+            uintptr_t fieldAddr = currentBase + field.offset;
+            std::string value = FormatValue(fieldAddr, field.type);
+            std::string name = field.name;
+            if (count > 1) name += "[" + std::to_string(i) + "]";
+            results.push_back({ (size_t)(fieldAddr - baseAddress), "", name, field.type, value });
+        }
     }
 
     return results;
@@ -77,14 +101,22 @@ std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, con
 
 std::string OffsetDumper::FormatValue(uintptr_t address, const std::string& type) {
     std::stringstream ss;
-    if (type == "int32" || type == "Int32") {
-        ss << m_pm.Read<int32_t>(address);
-    } else if (type == "uint32" || type == "Uint32") {
-        ss << m_pm.Read<uint32_t>(address);
-    } else if (type == "float" || type == "Float") {
-        ss << m_pm.Read<float>(address);
-    } else if (type == "uintptr_t" || type == "Pointer") {
-        ss << "0x" << std::hex << std::uppercase << m_pm.Read<uintptr_t>(address);
+    std::string t = type;
+    std::transform(t.begin(), t.end(), t.begin(), ::tolower);
+
+    if (t == "int8") ss << (int)m_pm.Read<int8_t>(address);
+    else if (t == "uint8") ss << (int)m_pm.Read<uint8_t>(address);
+    else if (t == "int16") ss << m_pm.Read<int16_t>(address);
+    else if (t == "uint16") ss << m_pm.Read<uint16_t>(address);
+    else if (t == "int32") ss << m_pm.Read<int32_t>(address);
+    else if (t == "uint32") ss << m_pm.Read<uint32_t>(address);
+    else if (t == "int64") ss << m_pm.Read<int64_t>(address);
+    else if (t == "uint64") ss << m_pm.Read<uint64_t>(address);
+    else if (t == "float") ss << std::fixed << std::setprecision(4) << m_pm.Read<float>(address);
+    else if (t == "double") ss << std::fixed << std::setprecision(8) << m_pm.Read<double>(address);
+    else if (t == "uintptr_t" || t == "pointer") {
+        if (m_pm.IsTarget64Bit()) ss << "0x" << std::hex << std::uppercase << m_pm.Read<uint64_t>(address);
+        else ss << "0x" << std::hex << std::uppercase << m_pm.Read<uint32_t>(address);
     } else {
         ss << "???";
     }
