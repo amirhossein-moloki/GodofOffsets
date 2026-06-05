@@ -7,6 +7,7 @@
 #include <sstream>
 #include <thread>
 #include <mutex>
+#include "Utils/ThreadPool.h"
 
 namespace Core {
 
@@ -51,9 +52,10 @@ void PointerScanner::BuildPointerMap() {
     for (const auto& r : regions) totalSize += r.size;
     size_t processedSize = 0;
 
-    std::vector<std::thread> threads;
     unsigned int numThreads = std::thread::hardware_concurrency();
     if (numThreads == 0) numThreads = 1;
+    Utils::ThreadPool pool(numThreads);
+    std::vector<std::future<void>> futures;
 
     for (const auto& region : regions) {
         if (m_cancelRequested) break;
@@ -65,7 +67,7 @@ void PointerScanner::BuildPointerMap() {
         }
 #endif
 
-        threads.push_back(std::thread([this, region, &mapMutex, &processedSize, totalSize]() {
+        futures.push_back(pool.Enqueue([this, region, &mapMutex, &processedSize, totalSize]() {
             const size_t chunkSize = 1024 * 1024; // 1MB chunks
             std::vector<uint8_t> buffer(chunkSize);
             std::unordered_multimap<uintptr_t, uintptr_t> localMap;
@@ -78,8 +80,6 @@ void PointerScanner::BuildPointerMap() {
                 for (size_t j = 0; j <= (toRead >= sizeof(uintptr_t) ? toRead - sizeof(uintptr_t) : 0); j += sizeof(uintptr_t)) {
                     uintptr_t value = *(uintptr_t*)(buffer.data() + j);
 
-                    // Simple filter: value must look like a valid pointer (aligned and in a known region)
-                    // We don't verify all regions here for speed, but we could.
                     if (value > 0x10000 && (value % sizeof(uintptr_t) == 0)) {
                         localMap.insert({ value, region.baseAddress + i + j });
                     }
@@ -93,13 +93,11 @@ void PointerScanner::BuildPointerMap() {
                 m_progress = 0.8f * ((float)processedSize / totalSize);
             }
         }));
-
-        if (threads.size() >= numThreads) {
-            for (auto& t : threads) t.join();
-            threads.clear();
-        }
     }
-    for (auto& t : threads) t.join();
+
+    for (auto& f : futures) {
+        f.get();
+    }
 }
 
 void PointerScanner::FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited) {

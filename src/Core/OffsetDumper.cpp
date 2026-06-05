@@ -1,7 +1,9 @@
 #include "Core/OffsetDumper.h"
+#include "Utils/FormatUtils.h"
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <algorithm>
 
 namespace Core {
 
@@ -44,14 +46,12 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
                 // Check if value is a pointer to any module
                 for (const auto& targetMod : allModules) {
                     if (value >= targetMod.baseAddress && value < targetMod.baseAddress + targetMod.imageSize) {
-                        std::stringstream ss;
-                        ss << "0x" << std::hex << std::uppercase << value;
                         results.push_back({
                             section.virtualAddress + i - mod.baseAddress,
                             moduleName,
-                            section.name + "+0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << i)).str(),
+                            section.name + "+" + Utils::ToHex(i),
                             "Pointer",
-                            targetMod.name + "+0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << (value - targetMod.baseAddress))).str()
+                            targetMod.name + "+" + Utils::ToHex(value - targetMod.baseAddress)
                         });
                         break;
                     }
@@ -115,8 +115,8 @@ std::string OffsetDumper::FormatValue(uintptr_t address, const std::string& type
     else if (t == "float") ss << std::fixed << std::setprecision(4) << m_pm.Read<float>(address);
     else if (t == "double") ss << std::fixed << std::setprecision(8) << m_pm.Read<double>(address);
     else if (t == "uintptr_t" || t == "pointer") {
-        if (m_pm.IsTarget64Bit()) ss << "0x" << std::hex << std::uppercase << m_pm.Read<uint64_t>(address);
-        else ss << "0x" << std::hex << std::uppercase << m_pm.Read<uint32_t>(address);
+        if (m_pm.IsTarget64Bit()) return Utils::ToHex(m_pm.Read<uint64_t>(address));
+        else return Utils::ToHex(m_pm.Read<uint32_t>(address));
     } else {
         ss << "???";
     }

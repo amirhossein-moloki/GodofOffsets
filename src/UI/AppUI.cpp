@@ -1,4 +1,5 @@
 #include "UI/AppUI.h"
+#include "Utils/FormatUtils.h"
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -466,11 +467,10 @@ void AppUI::RenderMemoryScannerTab() {
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
 
-                        char addrStr[32];
-                        sprintf(addrStr, "0x%llX", (unsigned long long)results[i]);
+                        std::string addrStr = Utils::ToHex(results[i]);
 
                         bool selected = false;
-                        if (ImGui::Selectable(addrStr, &selected, ImGuiSelectableFlags_SpanAllColumns)) {
+                        if (ImGui::Selectable(addrStr.c_str(), &selected, ImGuiSelectableFlags_SpanAllColumns)) {
                             // Selection logic
                         }
 
@@ -480,7 +480,7 @@ void AppUI::RenderMemoryScannerTab() {
 
                         if (ImGui::BeginPopupContextItem()) {
                             if (ImGui::MenuItem("Jump to in Hex Viewer")) JumpToHex(results[i]);
-                            if (ImGui::MenuItem("Copy Address")) ImGui::SetClipboardText(addrStr);
+                            if (ImGui::MenuItem("Copy Address")) ImGui::SetClipboardText(addrStr.c_str());
                             ImGui::EndPopup();
                         }
 
@@ -538,6 +538,7 @@ Core::ScanValue AppUI::GetCurrentScanValue() {
             case Core::DataType::Float:  sv.value = std::stof(s); break;
             case Core::DataType::Double: sv.value = std::stod(s); break;
             case Core::DataType::String: sv.value = s; break;
+            case Core::DataType::String16: sv.value = Utils::ToUTF16LE(s); break;
             case Core::DataType::AOB:    sv.value = s; break;
         }
 
@@ -643,10 +644,10 @@ void AppUI::RenderSignatureTab() {
 
             ImGui::TableSetColumnIndex(1);
             if (sig.result) {
-                char addrStr[32]; sprintf(addrStr, "0x%llX", (unsigned long long)sig.result);
-                ImGui::Text("%s", addrStr);
+                std::string addrStr = Utils::ToHex(sig.result);
+                ImGui::Text("%s", addrStr.c_str());
                 if (ImGui::BeginPopupContextItem()) {
-                    if (ImGui::MenuItem("Copy Address")) ImGui::SetClipboardText(addrStr);
+                    if (ImGui::MenuItem("Copy Address")) ImGui::SetClipboardText(addrStr.c_str());
                     if (ImGui::MenuItem("Jump to in Hex Viewer")) {
                         JumpToHex(sig.result);
                     }
@@ -655,10 +656,10 @@ void AppUI::RenderSignatureTab() {
 
                 ImGui::TableSetColumnIndex(2);
                 uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
-                char offStr[32]; sprintf(offStr, "0x%llX", (unsigned long long)(sig.result - base));
-                ImGui::Text("%s", offStr);
+                std::string offStr = Utils::ToHex(sig.result - base);
+                ImGui::Text("%s", offStr.c_str());
                 if (ImGui::BeginPopupContextItem()) {
-                    if (ImGui::MenuItem("Copy Offset")) ImGui::SetClipboardText(offStr);
+                    if (ImGui::MenuItem("Copy Offset")) ImGui::SetClipboardText(offStr.c_str());
                     ImGui::EndPopup();
                 }
             } else {
@@ -754,7 +755,7 @@ void AppUI::RenderDumperTab() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Discover Fields")) {
-        AddLog("Attempting auto-discovery of fields near 0x" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << m_structBase)).str(), LogSeverity::Info);
+        AddLog("Attempting auto-discovery of fields near " + Utils::ToHex(m_structBase), LogSeverity::Info);
 
         auto modules = m_pm.GetModules();
         const size_t scanRange = 0x200; // Scan 512 bytes
@@ -772,7 +773,7 @@ void AppUI::RenderDumperTab() {
                         for (const auto& f : m_structFields) if (f.offset == i) alreadyExists = true;
 
                         if (!alreadyExists) {
-                            m_structFields.push_back({ "ptr_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << i)).str(), "uintptr_t", i });
+                            m_structFields.push_back({ "ptr_" + Utils::ToHex(i, false), "uintptr_t", i });
                             discovered++;
                         }
                         break;
@@ -924,9 +925,7 @@ void AppUI::AddToRecentProcesses(const std::string& name) {
 
 void AppUI::JumpToHex(uintptr_t addr) {
     m_hexBase = addr;
-    char buf[32];
-    sprintf(buf, "0x%llX", (unsigned long long)addr);
-    AddLog("Jumping to address: " + std::string(buf) + " in Hex Viewer", LogSeverity::Info);
+    AddLog("Jumping to address: " + Utils::ToHex(addr) + " in Hex Viewer", LogSeverity::Info);
 
     sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
 
