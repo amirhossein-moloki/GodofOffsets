@@ -154,6 +154,19 @@ bool ProcessManager::OpenProcessWithStealth(DWORD pid) {
 }
 
 bool ProcessManager::ElevateHandle(HANDLE hProcess) {
+#ifdef _WIN32
+    // Note: This does not bypass Windows security. It only works if the current process
+    // already has the required privileges to obtain a PROCESS_ALL_ACCESS handle.
+    // Use EnableDebugPrivilege() first if attempting to access system processes.
+    if (!hProcess) return false;
+
+    HANDLE hElevated = NULL;
+    if (DuplicateHandle(GetCurrentProcess(), hProcess, GetCurrentProcess(), &hElevated, PROCESS_ALL_ACCESS, FALSE, 0)) {
+        m_hProcess.Close();
+        m_hProcess = Utils::WinHandle(hElevated);
+        return true;
+    }
+#endif
     return false;
 }
 
@@ -370,7 +383,11 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
         request.size = (UINT64)size;
 
         DWORD bytes;
-        return DeviceIoControl(m_hDriver, IOCTL_DUMPER_READ_MEMORY, &request, sizeof(request), &request, sizeof(request), &bytes, NULL);
+        if (DeviceIoControl(m_hDriver, IOCTL_DUMPER_READ_MEMORY, &request, sizeof(request), &request, sizeof(request), &bytes, NULL)) {
+            return true;
+        }
+        std::cerr << "[!] Stealth ReadMemory failed at 0x" << std::hex << address << " (Size: " << size << ")" << std::endl;
+        return false;
     }
 
     if (!m_hProcess.IsValid()) return false;
@@ -382,6 +399,11 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
 
     SIZE_T bytesRead;
     bool success = ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
+
+    if (!success) {
+        // Optional: Only log errors if we are not in a massive scan to avoid console spam
+        // std::cerr << "[!] ReadProcessMemory failed at 0x" << std::hex << address << " Error: " << GetLastError() << std::endl;
+    }
 
     if (modifyProtection && oldProtect != 0) {
         VirtualProtectEx(m_hProcess, (LPVOID)address, size, oldProtect, &oldProtect);
@@ -402,7 +424,11 @@ bool ProcessManager::WriteMemory(uintptr_t address, const void* buffer, size_t s
     if (!m_hProcess.IsValid()) return false;
 #ifdef _WIN32
     SIZE_T bytesWritten;
-    return WriteProcessMemory(m_hProcess, (LPVOID)address, buffer, size, &bytesWritten) && bytesWritten == size;
+    bool success = WriteProcessMemory(m_hProcess, (LPVOID)address, buffer, size, &bytesWritten) && bytesWritten == size;
+    if (!success) {
+        std::cerr << "[!] WriteProcessMemory failed at 0x" << std::hex << address << " Error: " << GetLastError() << std::endl;
+    }
+    return success;
 #else
     if (m_pid == (DWORD)getpid()) {
         memcpy((void*)address, buffer, size);

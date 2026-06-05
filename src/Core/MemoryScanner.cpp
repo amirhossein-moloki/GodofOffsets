@@ -8,6 +8,7 @@
 #include <cstring>
 #include <bit>
 #include <future>
+#include "Utils/ThreadPool.h"
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -83,6 +84,7 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
         case DataType::Float:  return 4;
         case DataType::Double: return 8;
         case DataType::String: return std::get<std::string>(val.value).length();
+        case DataType::String16: return std::get<std::string>(val.value).length() * 2;
         case DataType::AOB: {
             std::string pattern = std::get<std::string>(val.value);
             std::stringstream ss(pattern);
@@ -116,40 +118,55 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType, bool modi
         for (const auto& r : regions) totalSize += r.size;
 
         std::mutex localResultsMutex;
-        ScanSnapshot allResults;
+        std::vector<ScanSnapshot> allThreadResults;
         size_t scannedSize = 0;
 
-        std::vector<std::thread> threads;
         unsigned int numThreads = std::thread::hardware_concurrency();
         if (numThreads == 0) numThreads = 1;
 
-        for (size_t i = 0; i < regions.size(); ++i) {
+        Utils::ThreadPool pool(numThreads);
+        std::vector<std::future<ScanSnapshot>> futures;
+
+        for (const auto& region : regions) {
             if (m_cancelRequested) break;
 
-            const auto& region = regions[i];
-
-            threads.push_back(std::thread([this, region, val, scanType, modifyProtection, &localResultsMutex, &allResults, &scannedSize, totalSize]() {
-                std::vector<uintptr_t> localAddrs;
-                std::vector<uint8_t> localVals;
+            futures.push_back(pool.Enqueue([this, region, val, scanType, modifyProtection, &localResultsMutex, &scannedSize, totalSize]() {
+                ScanSnapshot res;
                 if (val.type == DataType::AOB) {
-                    AOBScan(region, std::get<std::string>(val.value), localAddrs, localVals);
+                    AOBScan(region, std::get<std::string>(val.value), res.addresses, res.values);
                 } else {
-                    ScanRegion(region, val, scanType, localAddrs, localVals, modifyProtection);
+                    ScanRegion(region, val, scanType, res.addresses, res.values, modifyProtection);
                 }
 
-                std::lock_guard<std::mutex> lock(localResultsMutex);
-                allResults.addresses.insert(allResults.addresses.end(), localAddrs.begin(), localAddrs.end());
-                allResults.values.insert(allResults.values.end(), localVals.begin(), localVals.end());
-                scannedSize += region.size;
-                m_progress = (float)scannedSize / totalSize;
+                {
+                    std::lock_guard<std::mutex> lock(localResultsMutex);
+                    scannedSize += region.size;
+                    m_progress = (float)scannedSize / totalSize;
+                }
+                return res;
             }));
-
-            if (threads.size() >= numThreads) {
-                for (auto& t : threads) t.join();
-                threads.clear();
-            }
         }
-        for (auto& t : threads) t.join();
+
+        for (auto& f : futures) {
+            allThreadResults.push_back(f.get());
+        }
+
+        // Merge results
+        ScanSnapshot allResults;
+        size_t totalAddresses = 0;
+        size_t totalValues = 0;
+        for (const auto& res : allThreadResults) {
+            totalAddresses += res.addresses.size();
+            totalValues += res.values.size();
+        }
+
+        allResults.addresses.reserve(totalAddresses);
+        allResults.values.reserve(totalValues);
+
+        for (auto& res : allThreadResults) {
+            allResults.addresses.insert(allResults.addresses.end(), res.addresses.begin(), res.addresses.end());
+            allResults.values.insert(allResults.values.end(), res.values.begin(), res.values.end());
+        }
 
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
@@ -175,8 +192,12 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
 
         ScanSnapshot nextResults;
         size_t total = prevScan.addresses.size();
-        size_t step = 1000;
 
+        // Optimistically reserve space.
+        // For NextScan, we expect significantly fewer results than previous scan.
+        nextResults.addresses.reserve(total / 2);
+
+        size_t step = 1000;
         size_t typeSize = GetDataTypeSize(val.type, val);
         std::vector<uint8_t> buffer(typeSize);
 
@@ -335,6 +356,13 @@ bool MemoryScanner::CompareValues(const void* current, const void* previous, con
             std::string v = std::get<std::string>(val.value);
             return memcmp(current, v.data(), v.length()) == 0;
         }
+        case DataType::String16: {
+            // Treat the input string as a sequence of UTF-16LE characters.
+            // In a real scenario, the UI would convert UTF-8 input to UTF-16LE bytes.
+            // Here we assume std::get<std::string>(val.value) already contains the UTF-16LE encoded bytes.
+            std::string v = std::get<std::string>(val.value);
+            return memcmp(current, v.data(), v.length()) == 0;
+        }
         case DataType::AOB: {
             if (previous && (scanType == ScanType::Changed || scanType == ScanType::Unchanged)) {
                 bool identical = memcmp(current, previous, size) == 0;
@@ -434,23 +462,56 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
                 }
             }
 
-            // Remainder for the last bytes
-            for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
-                if (buffer[i] == firstByte) {
+            // Fallback: Boyer-Moore-Horspool inspired search for non-SIMD or remaining bytes
+            size_t badCharTable[256];
+
+            // Find the last non-wildcard byte
+            int lastRealByteIdx = (int)bytes.size() - 1;
+            while (lastRealByteIdx >= 0 && !mask[lastRealByteIdx]) lastRealByteIdx--;
+
+            if (lastRealByteIdx >= 0) {
+                size_t skipValue = (size_t)lastRealByteIdx + 1;
+                for (int k = 0; k < 256; ++k) badCharTable[k] = skipValue;
+                for (int k = 0; k < lastRealByteIdx; ++k) {
+                    if (mask[k]) badCharTable[bytes[k]] = (size_t)lastRealByteIdx - k;
+                }
+
+                for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ) {
                     bool found = true;
-                    for (size_t k = 1; k < bytes.size(); ++k) {
+                    for (int k = lastRealByteIdx; k >= 0; --k) {
                         if (mask[k] && buffer[i + k] != bytes[k]) {
                             found = false;
                             break;
                         }
                     }
+
+                    if (found) {
+                        // Double check the rest of the pattern if there were trailing wildcards
+                        for (size_t k = (size_t)lastRealByteIdx + 1; k < bytes.size(); ++k) {
+                            if (mask[k] && buffer[i + k] != bytes[k]) {
+                                found = false;
+                                break;
+                            }
+                        }
+                    }
+
                     if (found) {
                         results.push_back(region.baseAddress + offset + i);
                         values.insert(values.end(), buffer.data() + i, buffer.data() + i + bytes.size());
+                        i++;
+                    } else {
+                        i += badCharTable[buffer[i + lastRealByteIdx]];
                     }
+                }
+            } else {
+                // All wildcards or empty pattern
+                for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
+                    results.push_back(region.baseAddress + offset + i);
+                    values.insert(values.end(), buffer.data() + i, buffer.data() + i + bytes.size());
                 }
             }
         } else {
+            // If the first byte is a wildcard, we can't use BMH effectively
             for (size_t i = 0; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
                 bool found = true;
                 for (size_t k = 0; k < bytes.size(); ++k) {

@@ -34,7 +34,7 @@ enum class DataType {
     Int32, Uint32,
     Int64, Uint64,
     Float, Double,
-    String,
+    String, String16,
     AOB
 };
 
