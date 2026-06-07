@@ -301,7 +301,7 @@ void AppUI::RenderProcessTab() {
                             JumpToHex(mod.baseAddress);
                         }
                         if (ImGui::MenuItem("Copy Base Address")) {
-                            char buf[32]; sprintf(buf, "0x%llX", (unsigned long long)mod.baseAddress);
+                            char buf[32]; snprintf(buf, sizeof(buf), "0x%llX", (unsigned long long)mod.baseAddress);
                             ImGui::SetClipboardText(buf);
                         }
                         ImGui::EndPopup();
@@ -432,20 +432,20 @@ void AppUI::RenderMemoryScannerTab() {
                     typeSize = snapshotValues.size() / results.size();
                 }
 
-                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr) {
+                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr, size_t outSize) {
                     switch (m_selectedDataType) {
-                        case Core::DataType::Int8:   sprintf(outStr, "%d", *(int8_t*)ptr); break;
-                        case Core::DataType::Uint8:  sprintf(outStr, "%u", *(uint8_t*)ptr); break;
-                        case Core::DataType::Int16:  sprintf(outStr, "%d", *(int16_t*)ptr); break;
-                        case Core::DataType::Uint16: sprintf(outStr, "%u", *(uint16_t*)ptr); break;
-                        case Core::DataType::Int32:  sprintf(outStr, "%d", *(int32_t*)ptr); break;
-                        case Core::DataType::Uint32: sprintf(outStr, "%u", *(uint32_t*)ptr); break;
-                        case Core::DataType::Int64:  sprintf(outStr, "%lld", *(int64_t*)ptr); break;
-                        case Core::DataType::Uint64: sprintf(outStr, "%llu", *(uint64_t*)ptr); break;
-                        case Core::DataType::Float:  sprintf(outStr, "%.4f", *(float*)ptr); break;
-                        case Core::DataType::Double: sprintf(outStr, "%.8f", *(double*)ptr); break;
+                        case Core::DataType::Int8:   snprintf(outStr, outSize, "%d", *(int8_t*)ptr); break;
+                        case Core::DataType::Uint8:  snprintf(outStr, outSize, "%u", *(uint8_t*)ptr); break;
+                        case Core::DataType::Int16:  snprintf(outStr, outSize, "%d", *(int16_t*)ptr); break;
+                        case Core::DataType::Uint16: snprintf(outStr, outSize, "%u", *(uint16_t*)ptr); break;
+                        case Core::DataType::Int32:  snprintf(outStr, outSize, "%d", *(int32_t*)ptr); break;
+                        case Core::DataType::Uint32: snprintf(outStr, outSize, "%u", *(uint32_t*)ptr); break;
+                        case Core::DataType::Int64:  snprintf(outStr, outSize, "%lld", *(int64_t*)ptr); break;
+                        case Core::DataType::Uint64: snprintf(outStr, outSize, "%llu", *(uint64_t*)ptr); break;
+                        case Core::DataType::Float:  snprintf(outStr, outSize, "%.4f", *(float*)ptr); break;
+                        case Core::DataType::Double: snprintf(outStr, outSize, "%.8f", *(double*)ptr); break;
                         case Core::DataType::String: {
-                            size_t len = (std::min)(size, (size_t)63);
+                            size_t len = (std::min)(size, outSize - 1);
                             memcpy(outStr, ptr, len);
                             outStr[len] = '\0';
                             break;
@@ -453,10 +453,10 @@ void AppUI::RenderMemoryScannerTab() {
                         case Core::DataType::AOB: {
                             outStr[0] = '\0';
                             for (size_t k = 0; k < (std::min)(size, (size_t)16); ++k) {
-                                char b[4]; sprintf(b, "%02X ", ptr[k]);
-                                strcat(outStr, b);
+                                char b[4]; snprintf(b, sizeof(b), "%02X ", ptr[k]);
+                                strncat(outStr, b, outSize - strlen(outStr) - 1);
                             }
-                            if (size > 16) strcat(outStr, "...");
+                            if (size > 16) strncat(outStr, "...", outSize - strlen(outStr) - 1);
                             break;
                         }
                     }
@@ -488,7 +488,7 @@ void AppUI::RenderMemoryScannerTab() {
                         ImGui::TableSetColumnIndex(1);
                         if (i * typeSize < snapshotValues.size()) {
                             char valStr[128];
-                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr);
+                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr, sizeof(valStr));
                             ImGui::TextDisabled("%s", valStr);
                         }
 
@@ -497,7 +497,7 @@ void AppUI::RenderMemoryScannerTab() {
                         std::vector<uint8_t> liveBuf(typeSize);
                         if (m_pm.ReadMemory(results[i], liveBuf.data(), typeSize)) {
                             char liveStr[128];
-                            FormatValue(liveBuf.data(), typeSize, liveStr);
+                            FormatValue(liveBuf.data(), typeSize, liveStr, sizeof(liveStr));
 
                             // Highlight if changed
                             bool changed = false;
@@ -717,7 +717,7 @@ void AppUI::RenderPointerScanTab() {
                 if (ImGui::TreeNodeEx(modPair.first.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                     for (auto& basePair : modPair.second) {
                         char baseLabel[64];
-                        sprintf(baseLabel, "Base Offset: 0x%llX (%zu chains)", (unsigned long long)basePair.first, basePair.second.size());
+                        snprintf(baseLabel, sizeof(baseLabel), "Base Offset: 0x%llX (%zu chains)", (unsigned long long)basePair.first, basePair.second.size());
                         if (ImGui::TreeNode(baseLabel)) {
                             for (const auto& chain : basePair.second) {
                                 std::stringstream ss;
@@ -787,10 +787,10 @@ void AppUI::RenderDumperTab() {
     }
 
     for (size_t i = 0; i < m_structFields.size(); ++i) {
-        char nameId[32]; sprintf(nameId, "Name##%zu", i);
-        char offId[32]; sprintf(offId, "Off##%zu", i);
-        char typeId[32]; sprintf(typeId, "Type##%zu", i);
-        char removeId[32]; sprintf(removeId, "X##%zu", i);
+        char nameId[32]; snprintf(nameId, sizeof(nameId), "Name##%zu", i);
+        char offId[32]; snprintf(offId, sizeof(offId), "Off##%zu", i);
+        char typeId[32]; snprintf(typeId, sizeof(typeId), "Type##%zu", i);
+        char removeId[32]; snprintf(removeId, sizeof(removeId), "X##%zu", i);
 
         ImGui::PushItemWidth(100);
         char fieldName[64];
@@ -927,7 +927,7 @@ void AppUI::JumpToHex(uintptr_t addr) {
     m_hexBase = addr;
     AddLog("Jumping to address: " + Utils::ToHex(addr) + " in Hex Viewer", LogSeverity::Info);
 
-    sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+    snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
 
     // Add to history
     if (m_historyIndex == -1 || m_hexHistory[m_historyIndex] != addr) {
@@ -950,7 +950,7 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::Button("<", ImVec2(30, 0)) && m_historyIndex > 0) {
         m_historyIndex--;
         m_hexBase = m_hexHistory[m_historyIndex];
-        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+        snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go Back");
 
@@ -958,7 +958,7 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::Button(">", ImVec2(30, 0)) && m_historyIndex < (int)m_hexHistory.size() - 1) {
         m_historyIndex++;
         m_hexBase = m_hexHistory[m_historyIndex];
-        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+        snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go Forward");
     ImGui::EndGroup();

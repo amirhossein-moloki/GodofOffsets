@@ -35,12 +35,22 @@ typedef struct _MEMORY_BASIC_INFORMATION {
 #include <memory>
 #include "Utils/WinHandle.h"
 
+/**
+ * @namespace Core
+ * @brief contains core logic for process and memory management.
+ * @details شامل منطق اصلی مدیریت پروسس‌ها و حافظه.
+ */
 namespace Core {
 
+/**
+ * @enum MemoryMode
+ * @brief Defines the level of stealth used for memory operations.
+ * @details متدهای مختلف دسترسی به حافظه (استاندارد، مخفی و خارجی).
+ */
 enum class MemoryMode {
-    Standard,   // Standard OpenProcess/ReadProcessMemory
-    Stealth,    // Handle Elevation / VDM (Kernel-mode bypass)
-    External    // For future expansion (e.g., KVM, DMA)
+    Standard,   // Standard OpenProcess/ReadProcessMemory (متد استاندارد ویندوز)
+    Stealth,    // Handle Elevation / VDM (دور زدن آنتی‌چیت با درایور)
+    External    // For future expansion (e.g., KVM, DMA) (توسعه آتی برای سخت‌افزار)
 };
 
 struct SectionInfo {
@@ -72,6 +82,11 @@ struct ProcessInfo {
     bool is64Bit;
 };
 
+/**
+ * @class ProcessManager
+ * @brief Manages process attachment and memory access.
+ * @details کلاس مدیریت اتصال به پروسس و خواندن/نوشتن در حافظه.
+ */
 class ProcessManager {
 public:
     ProcessManager();
@@ -81,9 +96,32 @@ public:
     ProcessManager(const ProcessManager&) = delete;
     ProcessManager& operator=(const ProcessManager&) = delete;
 
+    /**
+     * @brief Retrieves a list of all active processes.
+     * @return std::vector<ProcessInfo> لیست پروسس‌های فعال.
+     */
     static std::vector<ProcessInfo> GetProcessList();
+
+    /**
+     * @brief Attaches to a process by its PID.
+     * @param pid Process ID.
+     * @param mode Selected memory access mode.
+     * @return true if successful.
+     */
     bool Attach(DWORD pid, MemoryMode mode = MemoryMode::Standard);
+
+    /**
+     * @brief Attaches to a process by its executable name.
+     * @param processName Name of the .exe file.
+     * @param mode Selected memory access mode.
+     * @return true if successful.
+     */
     bool Attach(const std::string& processName, MemoryMode mode = MemoryMode::Standard);
+
+    /**
+     * @brief Detaches from the current target process.
+     * @details قطع اتصال از پروسس هدف.
+     */
     void Detach();
 
     bool IsAttached() const {
@@ -102,9 +140,31 @@ public:
     uintptr_t GetModuleBase(const std::string& moduleName) const;
     ModuleInfo GetModuleInfo(const std::string& moduleName) const;
 
+    /**
+     * @brief Reads memory from the target process.
+     * @param address Target virtual address.
+     * @param buffer Buffer to store the data.
+     * @param size Number of bytes to read.
+     * @param modifyProtection If true, temporarily changes memory protection to PAGE_EXECUTE_READWRITE.
+     * @return true if read was successful.
+     */
     bool ReadMemory(uintptr_t address, void* buffer, size_t size, bool modifyProtection = false) const;
+
+    /**
+     * @brief Writes memory to the target process.
+     * @param address Target virtual address.
+     * @param buffer Buffer containing the data to write.
+     * @param size Number of bytes to write.
+     * @return true if write was successful.
+     */
     bool WriteMemory(uintptr_t address, const void* buffer, size_t size) const;
 
+    /**
+     * @brief Helper template to read a specific type from memory.
+     * @tparam T Type to read (e.g., int, float).
+     * @param address Virtual address to read from.
+     * @return The value read from memory.
+     */
     template<typename T>
     T Read(uintptr_t address) const {
         T buffer;

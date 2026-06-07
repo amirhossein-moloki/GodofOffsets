@@ -77,3 +77,7 @@ target_compile_options(UnitTests PRIVATE -mavx2)
 add_executable(LinuxIntegrationTest tests/LinuxIntegrationTest.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
 target_link_libraries(LinuxIntegrationTest PRIVATE nlohmann_json::nlohmann_json Zydis)
 target_compile_options(LinuxIntegrationTest PRIVATE -mavx2)
+
+add_executable(PointerScanTest tests/PointerScanTest.cpp src/Core/ProcessManager.cpp src/Core/MemoryScanner.cpp src/Core/Scanner.cpp src/Core/OffsetResolver.cpp src/Core/PointerScanner.cpp)
+target_link_libraries(PointerScanTest PRIVATE nlohmann_json::nlohmann_json Zydis)
+target_compile_options(PointerScanTest PRIVATE -mavx2)
