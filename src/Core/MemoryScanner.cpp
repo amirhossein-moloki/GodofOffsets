@@ -38,8 +38,16 @@ static bool SupportsSSE42() {
     return (info[2] & (1 << 20)) != 0;
 }
 
+/**
+ * @brief Constructor for MemoryScanner.
+ * @details سازنده کلاس اسکنر حافظه.
+ */
 MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm) {}
 
+/**
+ * @brief Clears scan results and resets state.
+ * @details پاکسازی نتایج و ریست کردن وضعیت.
+ */
 void MemoryScanner::Reset() {
     std::lock_guard<std::mutex> lock(m_resultsMutex);
     m_currentScan.addresses.clear();
@@ -97,6 +105,10 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
     }
 }
 
+/**
+ * @brief Executes a full scan of all committed memory regions in background threads.
+ * @details اجرای اسکن کامل تمام بخش‌های حافظه در ترد‌های پس‌زمینه.
+ */
 void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType, bool modifyProtection) {
     if (m_isScanning) return;
 
@@ -225,6 +237,10 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
     });
 }
 
+/**
+ * @brief Scans a single memory region, optimized with SIMD if supported.
+ * @details اسکن یک بخش خاص از حافظه، بهینه‌سازی شده با دستورات SIMD.
+ */
 void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues, bool modifyProtection) {
     const size_t bufferSize = 64 * 1024;
     std::vector<uint8_t> buffer(bufferSize);

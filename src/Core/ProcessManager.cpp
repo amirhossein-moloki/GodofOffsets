@@ -16,10 +16,18 @@
 
 namespace Core {
 
+/**
+ * @brief Constructor for ProcessManager.
+ * @details سازنده کلاس مدیریت پروسس.
+ */
 ProcessManager::ProcessManager() : m_pid(0), m_mode(MemoryMode::Standard) {}
 
 ProcessManager::~ProcessManager() { Detach(); }
 
+/**
+ * @brief Retrieves a list of processes using Toolhelp32Snapshot.
+ * @details دریافت لیست پروسس‌ها با استفاده از توابع ویندوز.
+ */
 std::vector<ProcessInfo> ProcessManager::GetProcessList() {
     std::vector<ProcessInfo> processes;
 #ifdef _WIN32
@@ -51,6 +59,10 @@ std::vector<ProcessInfo> ProcessManager::GetProcessList() {
     return processes;
 }
 
+/**
+ * @brief Attaches to a target process and detects its architecture.
+ * @details اتصال به پروسس هدف و تشخیص ۳۲ یا ۶۴ بیتی بودن آن.
+ */
 bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
     Detach();
     m_mode = mode;
@@ -373,6 +385,10 @@ ModuleInfo ProcessManager::GetModuleInfo(const std::string& moduleName) const {
     return {};
 }
 
+/**
+ * @brief Core memory reading function with support for Stealth mode.
+ * @details تابع اصلی خواندن حافظه با پشتیبانی از حالت مخفی (درایور).
+ */
 bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bool modifyProtection) const {
 #ifdef _WIN32
     if (m_mode == MemoryMode::Stealth && m_hDriver.IsValid()) {
@@ -438,6 +454,10 @@ bool ProcessManager::WriteMemory(uintptr_t address, const void* buffer, size_t s
 #endif
 }
 
+/**
+ * @brief Attempts to enable SeDebugPrivilege for the current process.
+ * @details تلاش برای فعال‌سازی دسترسی Debug برای پروسس فعلی جهت دسترسی به پروسس‌های سیستم.
+ */
 bool ProcessManager::EnableDebugPrivilege() {
 #ifdef _WIN32
     HANDLE hToken;

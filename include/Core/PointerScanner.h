@@ -7,9 +7,10 @@
 #include <vector>
 #include <string>
 #include <atomic>
-#include <unordered_map>
+#include <vector>
 #include <set>
 #include <mutex>
+#include <future>
 #include "Core/ProcessManager.h"
 
 namespace Core {
@@ -37,9 +38,11 @@ private:
     std::atomic<bool> m_cancelRequested{false};
     std::atomic<float> m_progress{0.0f};
     std::mutex m_resultsMutex;
+    std::future<void> m_scanFuture;
 
     // Two-stage pointer scanning
-    std::unordered_multimap<uintptr_t, uintptr_t> m_pointerMap;
+    // Store as sorted vector for efficient range-based lookups (value, address)
+    std::vector<std::pair<uintptr_t, uintptr_t>> m_pointerMap;
     void BuildPointerMap();
     void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited);
 };

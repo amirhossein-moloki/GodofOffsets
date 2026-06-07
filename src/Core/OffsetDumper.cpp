@@ -7,8 +7,16 @@
 
 namespace Core {
 
+/**
+ * @brief Constructor for OffsetDumper.
+ * @details سازنده کلاس دامپر آفست.
+ */
 OffsetDumper::OffsetDumper(const ProcessManager& pm) : m_pm(pm) {}
 
+/**
+ * @brief Identifies and dumps basic module information and sections.
+ * @details شناسایی و دامپ اطلاعات پایه ماژول و بخش‌های آن.
+ */
 std::vector<OffsetResult> OffsetDumper::DumpModule(const std::string& moduleName) {
     std::vector<OffsetResult> results;
     auto mod = m_pm.GetModuleInfo(moduleName);
@@ -24,6 +32,10 @@ std::vector<OffsetResult> OffsetDumper::DumpModule(const std::string& moduleName
     return results;
 }
 
+/**
+ * @brief Scans .data and .rdata sections for pointers into other modules.
+ * @details اسکن بخش‌های داده‌ای برای یافتن اشاره‌گر به سایر ماژول‌ها.
+ */
 std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& moduleName) {
     std::vector<OffsetResult> results;
     auto mod = m_pm.GetModuleInfo(moduleName);
@@ -77,6 +89,10 @@ std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, uintptr_t end
     return results;
 }
 
+/**
+ * @brief Dumps memory based on a user-provided structure definition.
+ * @details دامپ حافظه بر اساس تعریف ساختار توسط کاربر.
+ */
 std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, const StructDefinition& def, int count) {
     std::vector<OffsetResult> results;
 
