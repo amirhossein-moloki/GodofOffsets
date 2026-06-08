@@ -33,20 +33,12 @@
             "description": "RenderView for FOV/Camera"
         },
         {
-            "name": "ProfileManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 70 48 85 C9 74 0F",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "MinesweeperTimer",
+            "pattern": "FF 35 ? ? ? ? FF 15 ? ? ? ? 8D 45 F0",
+            "module": "minesweeper.exe",
+            "offset": 2,
             "relative": true,
-            "description": "ProfileManager for local player"
-        },
-        {
-            "name": "RoundManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 18 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "Round states and timers"
+            "description": "Timer offset for classic Minesweeper (RIP-relative example)"
         }
     ]
 }
