@@ -179,6 +179,29 @@ bool OffsetDumper::LoadFromJSON(const std::string& filename, std::vector<OffsetR
     return true;
 }
 
+std::vector<StructField> OffsetDumper::AutoDiscoverFields(uintptr_t baseAddress, size_t rangeSize) const {
+    std::vector<StructField> discoveredFields;
+    std::vector<uint8_t> buffer(rangeSize);
+    auto modules = m_pm.GetModules();
+
+    if (m_pm.ReadMemory(baseAddress, buffer.data(), rangeSize)) {
+        for (size_t i = 0; i < rangeSize; i += sizeof(uintptr_t)) {
+            uintptr_t val = *(uintptr_t*)(buffer.data() + i);
+
+            // Check if it's a valid pointer to any module
+            for (const auto& mod : modules) {
+                if (val >= mod.baseAddress && val < mod.baseAddress + mod.imageSize) {
+                    std::stringstream ss;
+                    ss << "ptr_0x" << std::hex << std::uppercase << i;
+                    discoveredFields.push_back({ ss.str(), "uintptr_t", i });
+                    break;
+                }
+            }
+        }
+    }
+    return discoveredFields;
+}
+
 bool OffsetDumper::SaveToCSV(const std::string& filename, const std::vector<OffsetResult>& results) {
     std::ofstream o(filename);
     if (!o.is_open()) return false;
