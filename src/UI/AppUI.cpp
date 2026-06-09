@@ -757,32 +757,24 @@ void AppUI::RenderDumperTab() {
     if (ImGui::Button("Discover Fields")) {
         AddLog("Attempting auto-discovery of fields near " + Utils::ToHex(m_structBase), LogSeverity::Info);
 
-        auto modules = m_pm.GetModules();
         const size_t scanRange = 0x200; // Scan 512 bytes
-        std::vector<uint8_t> buffer(scanRange);
+        auto discovered = m_dumper.AutoDiscoverFields(m_structBase, scanRange);
 
-        if (m_pm.ReadMemory(m_structBase, buffer.data(), scanRange)) {
-            int discovered = 0;
-            for (size_t i = 0; i < scanRange; i += sizeof(uintptr_t)) {
-                uintptr_t val = *(uintptr_t*)(buffer.data() + i);
+        int added = 0;
+        for (const auto& field : discovered) {
+            bool alreadyExists = false;
+            for (const auto& f : m_structFields) if (f.offset == field.offset) alreadyExists = true;
 
-                // Check if it's a valid pointer to any module
-                for (const auto& mod : modules) {
-                    if (val >= mod.baseAddress && val < mod.baseAddress + mod.imageSize) {
-                        bool alreadyExists = false;
-                        for (const auto& f : m_structFields) if (f.offset == i) alreadyExists = true;
-
-                        if (!alreadyExists) {
-                            m_structFields.push_back({ "ptr_" + Utils::ToHex(i, false), "uintptr_t", i });
-                            discovered++;
-                        }
-                        break;
-                    }
-                }
+            if (!alreadyExists) {
+                m_structFields.push_back(field);
+                added++;
             }
-            AddLog("Auto-discovery complete. Found " + std::to_string(discovered) + " potential pointers.", LogSeverity::Success);
+        }
+
+        if (added > 0) {
+            AddLog("Auto-discovery complete. Added " + std::to_string(added) + " potential pointers.", LogSeverity::Success);
         } else {
-            AddLog("Failed to read memory for auto-discovery.", LogSeverity::Error);
+            AddLog("Auto-discovery complete. No new pointers found.", LogSeverity::Warning);
         }
     }
 

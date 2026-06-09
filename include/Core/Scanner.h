@@ -12,21 +12,44 @@
 
 namespace Core {
 
+/**
+ * @brief Represents a signature to search for.
+ * @details نمایانگر یک امضا (Signatue) برای جستجو
+ */
 struct Signature {
     std::string name;
-    std::string pattern;
-    std::string moduleName;
-    int offset = 0;
-    bool isRelative = true;
-    uintptr_t result = 0;
+    std::string pattern;        /**< Hex pattern with wildcards / پترن هگز به همراه وایلدکارد */
+    std::string moduleName;     /**< Target module to scan / ماژول هدف برای اسکن */
+    int offset = 0;             /**< Offset to add to result / آفست برای اضافه کردن به نتیجه نهایی */
+    bool isRelative = true;     /**< If true, resolves RIP-relative addresses / حل کردن آدرس‌های نسبی RIP */
+    uintptr_t result = 0;       /**< Discovered address / آدرس کشف شده */
 };
 
+/**
+ * @brief Signature and AOB scanner with RIP-relative resolution.
+ * @details اسکنر امضا و AOB با قابلیت حل آدرس‌های نسبی
+ */
 class Scanner {
 public:
     Scanner(const ProcessManager& pm);
 
+    /**
+     * @brief Finds a single pattern in a module's memory.
+     * @return The absolute address of the match.
+     * @details یافتن یک پترن خاص در حافظه یک ماژول
+     */
     uintptr_t FindPattern(const std::string& moduleName, const std::string& pattern);
+
+    /**
+     * @brief Loads signatures from a JSON file.
+     * @details بارگذاری لیست امضاها از یک فایل JSON
+     */
     std::vector<Signature> LoadSignatures(const std::string& filename);
+
+    /**
+     * @brief Runs a batch of signature scans.
+     * @details اجرای دسته‌ای اسکن‌های امضا
+     */
     void Run(std::vector<Signature>& sigs, bool isVulkan = false);
 
 protected:

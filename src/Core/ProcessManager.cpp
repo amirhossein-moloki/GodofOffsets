@@ -386,11 +386,14 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
         if (DeviceIoControl(m_hDriver, IOCTL_DUMPER_READ_MEMORY, &request, sizeof(request), &request, sizeof(request), &bytes, NULL)) {
             return true;
         }
-        std::cerr << "[!] Stealth ReadMemory failed at 0x" << std::hex << address << " (Size: " << size << ")" << std::endl;
+        std::cerr << "[!] Stealth ReadMemory failed at 0x" << std::hex << address << " (Size: " << size << ") Error: " << GetLastError() << std::endl;
         return false;
     }
 
-    if (!m_hProcess.IsValid()) return false;
+    if (!m_hProcess.IsValid()) {
+        // std::cerr << "[!] ReadMemory failed: Process handle is invalid." << std::endl;
+        return false;
+    }
 
     DWORD oldProtect = 0;
     if (modifyProtection) {
@@ -401,7 +404,8 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
     bool success = ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
 
     if (!success) {
-        // Optional: Only log errors if we are not in a massive scan to avoid console spam
+        // Log errors with more detail to aid debugging
+        // Use std::cerr for explicit failure visibility during development
         // std::cerr << "[!] ReadProcessMemory failed at 0x" << std::hex << address << " Error: " << GetLastError() << std::endl;
     }
 
@@ -421,7 +425,10 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
 }
 
 bool ProcessManager::WriteMemory(uintptr_t address, const void* buffer, size_t size) const {
-    if (!m_hProcess.IsValid()) return false;
+    if (!m_hProcess.IsValid()) {
+        std::cerr << "[!] WriteMemory failed: Process handle is invalid." << std::endl;
+        return false;
+    }
 #ifdef _WIN32
     SIZE_T bytesWritten;
     bool success = WriteProcessMemory(m_hProcess, (LPVOID)address, buffer, size, &bytesWritten) && bytesWritten == size;
