@@ -7,8 +7,8 @@
 #include <vector>
 #include <string>
 #include <atomic>
-#include <unordered_map>
-#include <set>
+#include <vector>
+#include <unordered_set>
 #include <mutex>
 #include "Core/ProcessManager.h"
 
@@ -39,9 +39,15 @@ private:
     std::mutex m_resultsMutex;
 
     // Two-stage pointer scanning
-    std::unordered_multimap<uintptr_t, uintptr_t> m_pointerMap;
+    struct PointerEntry {
+        uintptr_t value;
+        uintptr_t address;
+        bool operator<(const PointerEntry& other) const { return value < other.value; }
+    };
+    std::vector<PointerEntry> m_pointerMap;
+
     void BuildPointerMap();
-    void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited);
+    void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::unordered_set<uintptr_t>& visited, const std::vector<ModuleInfo>& modules);
 };
 
 } // namespace Core
