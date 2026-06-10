@@ -117,6 +117,13 @@ std::string OffsetDumper::FormatValue(uintptr_t address, const std::string& type
     else if (t == "uintptr_t" || t == "pointer") {
         if (m_pm.IsTarget64Bit()) return Utils::ToHex(m_pm.Read<uint64_t>(address));
         else return Utils::ToHex(m_pm.Read<uint32_t>(address));
+    } else if (t == "string") {
+        char buf[64];
+        if (m_pm.ReadMemory(address, buf, sizeof(buf))) {
+            buf[sizeof(buf) - 1] = '\0';
+            return std::string(buf);
+        }
+        return "???";
     } else {
         ss << "???";
     }

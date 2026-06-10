@@ -68,6 +68,11 @@ NTSTATUS DumperDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
             if (inputLength >= sizeof(DUMPER_GET_PID_REQUEST)) {
                 PDUMPER_GET_PID_REQUEST request = (PDUMPER_GET_PID_REQUEST)buffer;
                 status = GetProcessPidByName(request->process_name, &request->pid);
+                if (NT_SUCCESS(status)) {
+                    DbgPrint("[KernelDumper] IOCTL_DUMPER_GET_PID: Found %s -> %d\n", request->process_name, request->pid);
+                } else {
+                    DbgPrint("[KernelDumper] IOCTL_DUMPER_GET_PID: Failed to find %s (Status: 0x%X)\n", request->process_name, status);
+                }
                 bytesTransferred = sizeof(DUMPER_GET_PID_REQUEST);
             }
             break;
@@ -76,17 +81,25 @@ NTSTATUS DumperDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
         case IOCTL_DUMPER_GET_MODULE_BASE: {
             if (inputLength >= sizeof(DUMPER_GET_MODULE_REQUEST)) {
                 PDUMPER_GET_MODULE_REQUEST request = (PDUMPER_GET_MODULE_REQUEST)buffer;
-                // Convert char to wchar for module name comparison if needed
-                // For simplicity, assuming ASCII for now or specialized helper
                 WCHAR wModuleName[260];
                 ANSI_STRING ansiStr;
                 UNICODE_STRING uniStr;
-                RtlInitAnsiString(&ansiStr, request->module_name);
-                uniStr.Buffer = wModuleName;
-                uniStr.MaximumLength = sizeof(wModuleName);
-                RtlAnsiStringToUnicodeString(&uniStr, &ansiStr, FALSE);
 
-                status = GetModuleBaseAddress(request->pid, wModuleName, &request->base_address);
+                uniStr.Buffer = wModuleName;
+                uniStr.Length = 0;
+                uniStr.MaximumLength = sizeof(wModuleName);
+
+                RtlInitAnsiString(&ansiStr, request->module_name);
+                status = RtlAnsiStringToUnicodeString(&uniStr, &ansiStr, FALSE);
+
+                if (NT_SUCCESS(status)) {
+                    status = GetModuleBaseAddress(request->pid, wModuleName, &request->base_address);
+                }
+                if (NT_SUCCESS(status)) {
+                    DbgPrint("[KernelDumper] IOCTL_DUMPER_GET_MODULE_BASE: %s in PID %d -> 0x%llX\n", request->module_name, request->pid, request->base_address);
+                } else {
+                    DbgPrint("[KernelDumper] IOCTL_DUMPER_GET_MODULE_BASE: Failed for %s in PID %d (Status: 0x%X)\n", request->module_name, request->pid, status);
+                }
                 bytesTransferred = sizeof(DUMPER_GET_MODULE_REQUEST);
             }
             break;
@@ -96,6 +109,9 @@ NTSTATUS DumperDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
             if (inputLength >= sizeof(DUMPER_READ_MEMORY_REQUEST)) {
                 PDUMPER_READ_MEMORY_REQUEST request = (PDUMPER_READ_MEMORY_REQUEST)buffer;
                 status = CopyVirtualMemory(request->pid, (PVOID)request->address, (PVOID)request->buffer, (SIZE_T)request->size);
+                if (!NT_SUCCESS(status)) {
+                    DbgPrint("[KernelDumper] IOCTL_DUMPER_READ_MEMORY: Failed for PID %d at 0x%llX (Status: 0x%X)\n", request->pid, request->address, status);
+                }
                 bytesTransferred = sizeof(DUMPER_READ_MEMORY_REQUEST);
             }
             break;
@@ -103,6 +119,11 @@ NTSTATUS DumperDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
 
         case IOCTL_DUMPER_HIDE_DRIVER: {
             status = HideDriver(DeviceObject->DriverObject);
+            if (NT_SUCCESS(status)) {
+                DbgPrint("[KernelDumper] IOCTL_DUMPER_HIDE_DRIVER: Driver hidden successfully\n");
+            } else {
+                DbgPrint("[KernelDumper] IOCTL_DUMPER_HIDE_DRIVER: Failed (Status: 0x%X)\n", status);
+            }
             break;
         }
     }

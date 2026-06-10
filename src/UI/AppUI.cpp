@@ -757,7 +757,7 @@ void AppUI::RenderDumperTab() {
     if (ImGui::Button("Discover Fields")) {
         AddLog("Attempting auto-discovery of fields near " + Utils::ToHex(m_structBase), LogSeverity::Info);
 
-        auto modules = m_pm.GetModules();
+        auto regions = m_pm.GetRegions();
         const size_t scanRange = 0x200; // Scan 512 bytes
         std::vector<uint8_t> buffer(scanRange);
 
@@ -766,21 +766,43 @@ void AppUI::RenderDumperTab() {
             for (size_t i = 0; i < scanRange; i += sizeof(uintptr_t)) {
                 uintptr_t val = *(uintptr_t*)(buffer.data() + i);
 
-                // Check if it's a valid pointer to any module
-                for (const auto& mod : modules) {
-                    if (val >= mod.baseAddress && val < mod.baseAddress + mod.imageSize) {
-                        bool alreadyExists = false;
-                        for (const auto& f : m_structFields) if (f.offset == i) alreadyExists = true;
-
-                        if (!alreadyExists) {
-                            m_structFields.push_back({ "ptr_" + Utils::ToHex(i, false), "uintptr_t", i });
-                            discovered++;
-                        }
+                // Check if it's a valid pointer to any valid region
+                bool isPtr = false;
+                for (const auto& reg : regions) {
+                    if (val >= reg.baseAddress && val < reg.baseAddress + reg.size) {
+                        isPtr = true;
                         break;
                     }
                 }
+
+                if (isPtr) {
+                    bool alreadyExists = false;
+                    for (const auto& f : m_structFields) if (f.offset == i) alreadyExists = true;
+                    if (!alreadyExists) {
+                        m_structFields.push_back({ "ptr_" + Utils::ToHex(i, false), "uintptr_t", i });
+                        discovered++;
+                    }
+                } else {
+                    // Check if it's a string
+                    char* strPtr = (char*)(buffer.data() + i);
+                    bool isString = true;
+                    int len = 0;
+                    for (int k = 0; k < 8; ++k) {
+                        if (strPtr[k] == '\0') break;
+                        if (strPtr[k] < 32 || strPtr[k] > 126) { isString = false; break; }
+                        len++;
+                    }
+                    if (isString && len >= 3) {
+                        bool alreadyExists = false;
+                        for (const auto& f : m_structFields) if (f.offset == i) alreadyExists = true;
+                        if (!alreadyExists) {
+                            m_structFields.push_back({ "str_" + Utils::ToHex(i, false), "string", i });
+                            discovered++;
+                        }
+                    }
+                }
             }
-            AddLog("Auto-discovery complete. Found " + std::to_string(discovered) + " potential pointers.", LogSeverity::Success);
+            AddLog("Auto-discovery complete. Found " + std::to_string(discovered) + " potential fields.", LogSeverity::Success);
         } else {
             AddLog("Failed to read memory for auto-discovery.", LogSeverity::Error);
         }
@@ -1113,13 +1135,32 @@ void AppUI::ExportToHeader() {
     std::ofstream f("offsets.h");
     f << "#pragma once\n\n";
     f << "namespace Offsets {\n";
+
+    auto SanitizeName = [](std::string name) {
+        std::replace(name.begin(), name.end(), ' ', '_');
+        std::replace(name.begin(), name.end(), '.', '_');
+        std::replace(name.begin(), name.end(), '[', '_');
+        std::replace(name.begin(), name.end(), ']', '_');
+        return name;
+    };
+
+    f << "    // Signature Scan Results\n";
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
-            f << "    constexpr unsigned long long " << sig.name << " = 0x"
+            f << "    constexpr unsigned long long " << SanitizeName(sig.name) << " = 0x"
               << std::hex << std::uppercase << (sig.result - base) << ";\n";
         }
     }
+
+    if (!m_dumpedResults.empty()) {
+        f << "\n    // Structure/Range Dump Results\n";
+        for (const auto& res : m_dumpedResults) {
+            f << "    constexpr unsigned long long " << SanitizeName(res.name) << " = 0x"
+              << std::hex << std::uppercase << res.offset << "; // " << res.value << "\n";
+        }
+    }
+
     f << "}\n";
 }
 
