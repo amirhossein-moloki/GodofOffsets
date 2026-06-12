@@ -38,13 +38,16 @@ static bool SupportsSSE42() {
     return (info[2] & (1 << 20)) != 0;
 }
 
-MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm) {}
+MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm), m_arena(10 * 1024 * 1024) {} // 10MB blocks for scan results
 
 void MemoryScanner::Reset() {
     std::lock_guard<std::mutex> lock(m_resultsMutex);
     m_currentScan.addresses.clear();
     m_currentScan.values.clear();
+    m_currentScan.addresses.shrink_to_fit();
+    m_currentScan.values.shrink_to_fit();
     while (!m_history.empty()) m_history.pop();
+    m_arena.Reset();
     m_progress = 0.0f;
 }
 
@@ -125,12 +128,12 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType, bool modi
         if (numThreads == 0) numThreads = 1;
 
         Utils::ThreadPool pool(numThreads);
-        std::vector<std::future<ScanSnapshot>> futures;
+        std::vector<std::future<void>> futures;
 
         for (const auto& region : regions) {
             if (m_cancelRequested) break;
 
-            futures.push_back(pool.Enqueue([this, region, val, scanType, modifyProtection, &localResultsMutex, &scannedSize, totalSize]() {
+            futures.push_back(pool.Enqueue([this, region, val, scanType, modifyProtection, &localResultsMutex, &scannedSize, totalSize, &allThreadResults]() {
                 ScanSnapshot res;
                 if (val.type == DataType::AOB) {
                     AOBScan(region, std::get<std::string>(val.value), res.addresses, res.values);
@@ -142,26 +145,28 @@ void MemoryScanner::FirstScan(const ScanValue& val, ScanType scanType, bool modi
                     std::lock_guard<std::mutex> lock(localResultsMutex);
                     scannedSize += region.size;
                     m_progress = (float)scannedSize / totalSize;
+                    if (!res.addresses.empty()) {
+                        allThreadResults.push_back(std::move(res));
+                    }
                 }
-                return res;
             }));
         }
 
         for (auto& f : futures) {
-            allThreadResults.push_back(f.get());
+            f.get();
         }
 
         // Merge results
         ScanSnapshot allResults;
         size_t totalAddresses = 0;
-        size_t totalValues = 0;
+        size_t totalValuesSize = 0;
         for (const auto& res : allThreadResults) {
             totalAddresses += res.addresses.size();
-            totalValues += res.values.size();
+            totalValuesSize += res.values.size();
         }
 
         allResults.addresses.reserve(totalAddresses);
-        allResults.values.reserve(totalValues);
+        allResults.values.reserve(totalValuesSize);
 
         for (auto& res : allThreadResults) {
             allResults.addresses.insert(allResults.addresses.end(), res.addresses.begin(), res.addresses.end());
@@ -193,8 +198,6 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
         ScanSnapshot nextResults;
         size_t total = prevScan.addresses.size();
 
-        // Optimistically reserve space.
-        // For NextScan, we expect significantly fewer results than previous scan.
         nextResults.addresses.reserve(total / 2);
 
         size_t step = 1000;

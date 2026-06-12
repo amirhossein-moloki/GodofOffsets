@@ -13,6 +13,7 @@
 #include <mutex>
 #include <future>
 #include "Core/ProcessManager.h"
+#include "Utils/ArenaAllocator.h"
 
 namespace Core {
 
@@ -71,6 +72,7 @@ private:
     ScanSnapshot m_currentScan;
     std::stack<ScanSnapshot> m_history;
     std::mutex m_resultsMutex;
+    Utils::ArenaAllocator m_arena;
 
     std::atomic<bool> m_isScanning{false};
     std::atomic<bool> m_cancelRequested{false};
