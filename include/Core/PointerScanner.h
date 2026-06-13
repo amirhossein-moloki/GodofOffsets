@@ -7,12 +7,22 @@
 #include <vector>
 #include <string>
 #include <atomic>
-#include <unordered_map>
 #include <set>
 #include <mutex>
+#include <future>
 #include "Core/ProcessManager.h"
+#include "Utils/ArenaAllocator.h"
 
 namespace Core {
+
+struct PointerNode {
+    uintptr_t value;
+    uintptr_t address;
+
+    bool operator<(const PointerNode& other) const {
+        return value < other.value;
+    }
+};
 
 struct PointerChain {
     uintptr_t baseAddress;
@@ -39,7 +49,11 @@ private:
     std::mutex m_resultsMutex;
 
     // Two-stage pointer scanning
-    std::unordered_multimap<uintptr_t, uintptr_t> m_pointerMap;
+    PointerNode* m_pointerMap = nullptr;
+    size_t m_pointerMapCount = 0;
+    Utils::ArenaAllocator m_arena;
+    std::future<void> m_scanFuture;
+
     void BuildPointerMap();
     void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited);
 };

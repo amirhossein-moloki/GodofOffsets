@@ -1109,6 +1109,19 @@ void AppUI::RenderActivityLogTab() {
     }
 }
 
+static std::string SanitizeIdentifier(const std::string& name) {
+    std::string sanitized = name;
+    for (char& c : sanitized) {
+        if (!isalnum((unsigned char)c) && c != '_') {
+            c = '_';
+        }
+    }
+    if (!sanitized.empty() && isdigit((unsigned char)sanitized[0])) {
+        sanitized = "_" + sanitized;
+    }
+    return sanitized;
+}
+
 void AppUI::ExportToHeader() {
     std::ofstream f("offsets.h");
     f << "#pragma once\n\n";
@@ -1116,10 +1129,20 @@ void AppUI::ExportToHeader() {
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
-            f << "    constexpr unsigned long long " << sig.name << " = 0x"
+            f << "    constexpr unsigned long long " << SanitizeIdentifier(sig.name) << " = 0x"
               << std::hex << std::uppercase << (sig.result - base) << ";\n";
         }
     }
+
+    // Also export active dumped results if any
+    if (!m_dumpedResults.empty()) {
+        f << "\n    // Dumped Structures/Ranges\n";
+        for (const auto& res : m_dumpedResults) {
+            f << "    constexpr unsigned long long " << SanitizeIdentifier(res.name) << " = 0x"
+              << std::hex << std::uppercase << res.offset << "; // Value: " << res.value << "\n";
+        }
+    }
+
     f << "}\n";
 }
 
