@@ -470,13 +470,14 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
             while (lastRealByteIdx >= 0 && !mask[lastRealByteIdx]) lastRealByteIdx--;
 
             if (lastRealByteIdx >= 0) {
+                // If there are wildcards at the end, the skip value should still be based on the last REAL byte
                 size_t skipValue = (size_t)lastRealByteIdx + 1;
                 for (int k = 0; k < 256; ++k) badCharTable[k] = skipValue;
                 for (int k = 0; k < lastRealByteIdx; ++k) {
                     if (mask[k]) badCharTable[bytes[k]] = (size_t)lastRealByteIdx - k;
                 }
 
-                for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ) {
+                while (i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0)) {
                     bool found = true;
                     for (int k = lastRealByteIdx; k >= 0; --k) {
                         if (mask[k] && buffer[i + k] != bytes[k]) {

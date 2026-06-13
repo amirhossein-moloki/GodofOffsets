@@ -1,11 +1,7 @@
 build/
-!build/
-!build/Release/
-!build/Release/UniversalOffsetDumper.exe
 _deps/
 .vscode/
 *.exe
-!UniversalOffsetDumper.exe
 *.o
 *.a
 *.obj
@@ -21,3 +17,10 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+*.json
+!signatures.json
+offsets.h
+offsets.txt
+activity_log.txt
+*.cs
+*.rs
