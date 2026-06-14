@@ -84,7 +84,7 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
         case DataType::Float:  return 4;
         case DataType::Double: return 8;
         case DataType::String: return std::get<std::string>(val.value).length();
-        case DataType::String16: return std::get<std::string>(val.value).length() * 2;
+        case DataType::String16: return std::get<std::string>(val.value).length();
         case DataType::AOB: {
             std::string pattern = std::get<std::string>(val.value);
             std::stringstream ss(pattern);
@@ -476,7 +476,7 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
                     if (mask[k]) badCharTable[bytes[k]] = (size_t)lastRealByteIdx - k;
                 }
 
-                for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ) {
+                while (i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0)) {
                     bool found = true;
                     for (int k = lastRealByteIdx; k >= 0; --k) {
                         if (mask[k] && buffer[i + k] != bytes[k]) {
