@@ -8,9 +8,10 @@
 #include <string>
 #include <atomic>
 #include <unordered_map>
-#include <set>
+#include <unordered_set>
 #include <mutex>
 #include "Core/ProcessManager.h"
+#include "Utils/ArenaAllocator.h"
 
 namespace Core {
 
@@ -31,6 +32,12 @@ public:
     void Cancel() { m_cancelRequested = true; }
 
 private:
+    struct PointerNode {
+        uintptr_t value;
+        uintptr_t address;
+        bool operator<(const PointerNode& other) const { return value < other.value; }
+    };
+
     const ProcessManager& m_pm;
     std::vector<PointerChain> m_results;
     std::atomic<bool> m_isScanning{false};
@@ -39,9 +46,12 @@ private:
     std::mutex m_resultsMutex;
 
     // Two-stage pointer scanning
-    std::unordered_multimap<uintptr_t, uintptr_t> m_pointerMap;
+    Utils::ArenaAllocator m_arena;
+    PointerNode* m_pointerMap = nullptr;
+    size_t m_pointerMapCount = 0;
+
     void BuildPointerMap();
-    void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited);
+    void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::unordered_set<uintptr_t>& visited);
 };
 
 } // namespace Core

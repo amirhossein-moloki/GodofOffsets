@@ -47,6 +47,22 @@
             "offset": 0,
             "relative": true,
             "description": "Round states and timers"
+        },
+        {
+            "name": "Minesweeper_Timer",
+            "pattern": "A1 ? ? ? ? FF 05 ? ? ? ? E8 ? ? ? ? 8B 0D",
+            "module": "Minesweeper.exe",
+            "offset": 1,
+            "relative": false,
+            "description": "Timer address in classic Minesweeper"
+        },
+        {
+            "name": "Minesweeper_MineCount",
+            "pattern": "8B 0D ? ? ? ? 85 C9 74 0D 8B 15",
+            "module": "Minesweeper.exe",
+            "offset": 2,
+            "relative": false,
+            "description": "Remaining mines counter"
         }
     ]
 }
