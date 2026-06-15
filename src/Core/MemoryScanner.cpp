@@ -84,7 +84,10 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
         case DataType::Float:  return 4;
         case DataType::Double: return 8;
         case DataType::String: return std::get<std::string>(val.value).length();
-        case DataType::String16: return std::get<std::string>(val.value).length() * 2;
+        case DataType::String16:
+            // The value is already encoded as UTF-16LE bytes in the string.
+            // Since each character is 2 bytes, we return the raw byte length.
+            return std::get<std::string>(val.value).length();
         case DataType::AOB: {
             std::string pattern = std::get<std::string>(val.value);
             std::stringstream ss(pattern);
@@ -190,31 +193,47 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
             m_history.push(m_currentScan);
         }
 
-        ScanSnapshot nextResults;
         size_t total = prevScan.addresses.size();
-
-        // Optimistically reserve space.
-        // For NextScan, we expect significantly fewer results than previous scan.
-        nextResults.addresses.reserve(total / 2);
-
-        size_t step = 1000;
         size_t typeSize = GetDataTypeSize(val.type, val);
-        std::vector<uint8_t> buffer(typeSize);
 
-        for (size_t i = 0; i < total; i += step) {
-            if (m_cancelRequested) break;
+        unsigned int numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 1;
+        Utils::ThreadPool pool(numThreads);
 
-            size_t end = (std::min)(i + step, total);
-            for (size_t j = i; j < end; ++j) {
-                uintptr_t addr = prevScan.addresses[j];
-                if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
-                    if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
-                        nextResults.addresses.push_back(addr);
-                        nextResults.values.insert(nextResults.values.end(), buffer.begin(), buffer.end());
+        std::vector<std::future<ScanSnapshot>> futures;
+        size_t chunkSize = (total + numThreads - 1) / numThreads;
+        if (chunkSize < 100) chunkSize = 100;
+
+        std::atomic<size_t> processedCount = 0;
+
+        for (size_t i = 0; i < total; i += chunkSize) {
+            size_t end = (std::min)(i + chunkSize, total);
+            futures.push_back(pool.Enqueue([this, i, end, &prevScan, val, scanType, typeSize, modifyProtection, &processedCount, total]() {
+                ScanSnapshot res;
+                res.addresses.reserve((end - i) / 2);
+                std::vector<uint8_t> buffer(typeSize);
+
+                for (size_t j = i; j < end; ++j) {
+                    if (m_cancelRequested) break;
+                    uintptr_t addr = prevScan.addresses[j];
+                    if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
+                        if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
+                            res.addresses.push_back(addr);
+                            res.values.insert(res.values.end(), buffer.begin(), buffer.end());
+                        }
                     }
+                    processedCount++;
+                    if (processedCount % 1000 == 0) m_progress = (float)processedCount / total;
                 }
-            }
-            m_progress = (float)i / total;
+                return res;
+            }));
+        }
+
+        ScanSnapshot nextResults;
+        for (auto& f : futures) {
+            auto res = f.get();
+            nextResults.addresses.insert(nextResults.addresses.end(), res.addresses.begin(), res.addresses.end());
+            nextResults.values.insert(nextResults.values.end(), res.values.begin(), res.values.end());
         }
 
         {

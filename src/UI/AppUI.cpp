@@ -85,53 +85,56 @@ void AppUI::Render() {
         if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    static bool opt_fullscreen = true;
+    static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-    RenderHeader();
-    ImGui::Separator();
-
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
-            m_activeTab = TabID::None;
-        }
-
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
-
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
+    if (opt_fullscreen) {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->WorkPos);
+        ImGui::SetNextWindowSize(viewport->WorkSize);
+        ImGui::SetNextWindowViewport(viewport->ID);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+        window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
     }
 
+    ImGui::Begin("Universal Offset Dumper Shell", nullptr, window_flags);
+    if (opt_fullscreen) ImGui::PopStyleVar(2);
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable) {
+        ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+    }
+
+    RenderHeader();
     ImGui::End();
+
+    // Render Windows (each window can be docked)
+    auto RenderWindow = [&](const char* name, TabID id, auto func, bool forceFocus = false) {
+        bool attached = m_isAttached;
+        if (!attached && id != TabID::Process && id != TabID::ActivityLog) return;
+
+        if (forceFocus || m_activeTab == id) {
+            ImGui::SetNextWindowFocus();
+            if (!forceFocus) m_activeTab = TabID::None;
+        }
+
+        if (ImGui::Begin(name)) {
+            func();
+        }
+        ImGui::End();
+    };
+
+    RenderWindow("[P] Process", TabID::Process, [&]() { RenderProcessTab(); });
+    RenderWindow("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
+    RenderWindow("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
+    RenderWindow("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
+    RenderWindow("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
+    RenderWindow("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
+    RenderWindow("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
 }
 
 void AppUI::RenderHeader() {
