@@ -84,7 +84,7 @@ static size_t GetDataTypeSize(DataType type, const ScanValue& val) {
         case DataType::Float:  return 4;
         case DataType::Double: return 8;
         case DataType::String: return std::get<std::string>(val.value).length();
-        case DataType::String16: return std::get<std::string>(val.value).length() * 2;
+        case DataType::String16: return std::get<std::string>(val.value).length(); // Raw byte length as it's already encoded
         case DataType::AOB: {
             std::string pattern = std::get<std::string>(val.value);
             std::stringstream ss(pattern);
@@ -186,35 +186,64 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
         ScanSnapshot prevScan;
         {
             std::lock_guard<std::mutex> lock(m_resultsMutex);
+            if (m_currentScan.addresses.empty()) {
+                m_isScanning = false;
+                return;
+            }
             prevScan = m_currentScan;
             m_history.push(m_currentScan);
         }
 
-        ScanSnapshot nextResults;
         size_t total = prevScan.addresses.size();
-
-        // Optimistically reserve space.
-        // For NextScan, we expect significantly fewer results than previous scan.
-        nextResults.addresses.reserve(total / 2);
-
-        size_t step = 1000;
         size_t typeSize = GetDataTypeSize(val.type, val);
-        std::vector<uint8_t> buffer(typeSize);
 
-        for (size_t i = 0; i < total; i += step) {
-            if (m_cancelRequested) break;
+        unsigned int numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 1;
 
-            size_t end = (std::min)(i + step, total);
-            for (size_t j = i; j < end; ++j) {
-                uintptr_t addr = prevScan.addresses[j];
-                if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
-                    if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
-                        nextResults.addresses.push_back(addr);
-                        nextResults.values.insert(nextResults.values.end(), buffer.begin(), buffer.end());
+        Utils::ThreadPool pool(numThreads);
+        std::vector<std::future<ScanSnapshot>> futures;
+
+        size_t chunkSize = (total + numThreads - 1) / numThreads;
+        if (chunkSize < 100) chunkSize = 100;
+
+        std::mutex progressMutex;
+        size_t processedCount = 0;
+
+        for (size_t i = 0; i < total; i += chunkSize) {
+            size_t end = (std::min)(i + chunkSize, total);
+            futures.push_back(pool.Enqueue([this, i, end, &prevScan, val, scanType, modifyProtection, typeSize, &progressMutex, &processedCount, total]() {
+                ScanSnapshot localRes;
+                localRes.addresses.reserve((end - i) / 2);
+                localRes.values.reserve(((end - i) / 2) * typeSize);
+
+                std::vector<uint8_t> buffer(typeSize);
+
+                for (size_t j = i; j < end; ++j) {
+                    if (m_cancelRequested) break;
+
+                    uintptr_t addr = prevScan.addresses[j];
+                    if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
+                        if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
+                            localRes.addresses.push_back(addr);
+                            localRes.values.insert(localRes.values.end(), buffer.begin(), buffer.end());
+                        }
                     }
                 }
-            }
-            m_progress = (float)i / total;
+
+                {
+                    std::lock_guard<std::mutex> lock(progressMutex);
+                    processedCount += (end - i);
+                    m_progress = (float)processedCount / total;
+                }
+                return localRes;
+            }));
+        }
+
+        ScanSnapshot nextResults;
+        for (auto& f : futures) {
+            ScanSnapshot res = f.get();
+            nextResults.addresses.insert(nextResults.addresses.end(), res.addresses.begin(), res.addresses.end());
+            nextResults.values.insert(nextResults.values.end(), res.values.begin(), res.values.end());
         }
 
         {
