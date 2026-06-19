@@ -23,6 +23,11 @@ ProcessManager::~ProcessManager() { Detach(); }
 std::vector<ProcessInfo> ProcessManager::GetProcessList() {
     std::vector<ProcessInfo> processes;
 #ifdef _WIN32
+    SYSTEM_INFO sysInfo;
+    GetNativeSystemInfo(&sysInfo);
+    bool isHost64Bit = (sysInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
+                        sysInfo.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64);
+
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) return processes;
 
@@ -31,12 +36,18 @@ std::vector<ProcessInfo> ProcessManager::GetProcessList() {
 
     if (Process32First(hSnapshot, &pe32)) {
         do {
-            bool is64Bit = true;
+            bool is64Bit = isHost64Bit;
             HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe32.th32ProcessID);
             if (hProc) {
                 BOOL wow64 = FALSE;
                 if (IsWow64Process(hProc, &wow64)) {
-                    is64Bit = !wow64;
+                    if (wow64) {
+                        is64Bit = false; // 32-bit process on 64-bit OS
+                    } else {
+                        // Not WOW64. If OS is 64-bit, then process is 64-bit.
+                        // If OS is 32-bit, then process is 32-bit.
+                        is64Bit = isHost64Bit;
+                    }
                 }
                 CloseHandle(hProc);
             }
