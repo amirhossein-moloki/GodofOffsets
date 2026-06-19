@@ -72,7 +72,9 @@ std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, uintptr_t end
 
     for (uintptr_t addr = start; addr < end; addr += typeSize) {
         std::string val = FormatValue(addr, type);
-        results.push_back({ addr - start, "", "offset_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << (addr - start))).str(), type, val });
+        std::stringstream ss;
+        ss << "offset_0x" << std::hex << std::uppercase << (addr - start);
+        results.push_back({ addr - start, "", ss.str(), type, val });
     }
     return results;
 }

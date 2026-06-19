@@ -4,6 +4,11 @@ project(UniversalOffsetDumper LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enforce static linking for MSVC
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 include(FetchContent)
 
 # ImGui
@@ -61,7 +66,7 @@ endif()
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE d3d11 d3dcompiler dwmapi setupapi)
     if(MSVC)
-        target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS)
+        target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS /NODEFAULTLIB:MSVCRT)
     else()
         target_link_options(${PROJECT_NAME} PRIVATE -static -static-libgcc -static-libstdc++ -mwindows)
         # Ensure static linking for MinGW

@@ -91,7 +91,6 @@ private:
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
-    TabID m_activeTab = TabID::Process;
     std::vector<uintptr_t> m_hexHistory;
     int m_historyIndex = -1;
 
