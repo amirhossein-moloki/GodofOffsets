@@ -37,4 +37,29 @@ inline std::string ToUTF16LE(const std::string& utf8) {
 #endif
 }
 
+inline std::string SanitizeIdentifier(const std::string& name) {
+    if (name.empty()) return "unnamed_offset";
+
+    std::string result = name;
+
+    // Ensure it doesn't start with a number
+    if (std::isdigit(static_cast<unsigned char>(result[0]))) {
+        result = "_" + result;
+    }
+
+    for (char& c : result) {
+        if (!std::isalnum(static_cast<unsigned char>(c))) {
+            c = '_';
+        }
+    }
+
+    // Remove consecutive underscores
+    auto last = std::unique(result.begin(), result.end(), [](char a, char b) {
+        return a == '_' && b == '_';
+    });
+    result.erase(last, result.end());
+
+    return result;
+}
+
 } // namespace Utils
