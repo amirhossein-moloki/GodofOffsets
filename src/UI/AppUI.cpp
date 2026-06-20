@@ -85,53 +85,52 @@ void AppUI::Render() {
         if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    // Docking Workspace
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    ImGuiWindowFlags host_window_flags = 0;
+    host_window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    host_window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoMenuBar;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("UniversalOffsetDumperHost", NULL, host_window_flags);
+    ImGui::PopStyleVar(3);
 
     RenderHeader();
     ImGui::Separator();
 
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
+    ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+    ImGui::End();
+
+    auto RenderWindow = [&](const char* name, TabID id, auto func, bool requireAttach = true) {
+        if (m_activeTab == id) {
+            ImGui::SetNextWindowFocus();
             m_activeTab = TabID::None;
         }
 
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
+        if (ImGui::Begin(name, nullptr)) {
+            if (requireAttach && !m_isAttached) {
+                RenderEmptyState("No process attached.", "Go to the Process Manager tab to select a target.");
+            } else {
                 func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
             }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
+        }
+        ImGui::End();
+    };
 
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
-    }
-
-    ImGui::End();
+    RenderWindow("[P] Process Manager", TabID::Process, [&]() { RenderProcessTab(); }, false);
+    RenderWindow("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
+    RenderWindow("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
+    RenderWindow("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
+    RenderWindow("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
+    RenderWindow("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
+    RenderWindow("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); }, false);
 }
 
 void AppUI::RenderHeader() {
@@ -813,12 +812,19 @@ void AppUI::RenderDumperTab() {
     }
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
-    if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
+    if (ImGui::Button("Dump Structure (JSON)", ImVec2(180, 35))) {
         Core::StructDefinition def = { m_structName, m_structFields, m_structSize };
         m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, m_structCount);
         m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
         m_status = "Dumped to " + std::string(m_structName) + ".json";
         AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Dump (CSV)", ImVec2(100, 35))) {
+        Core::StructDefinition def = { m_structName, m_structFields, m_structSize };
+        m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, m_structCount);
+        m_dumper.SaveToCSV(std::string(m_structName) + ".csv", m_dumpedResults);
+        AddLog("Structure dumped to CSV.", LogSeverity::Success);
     }
     ImGui::SameLine();
     if (ImGui::Button("Load JSON", ImVec2(120, 35))) {
@@ -1111,13 +1117,21 @@ void AppUI::RenderActivityLogTab() {
 
 void AppUI::ExportToHeader() {
     std::ofstream f("offsets.h");
+    if (!f.is_open()) {
+        AddLog("Failed to open offsets.h for writing.", LogSeverity::Error);
+        return;
+    }
     f << "#pragma once\n\n";
+    f << "// Generated by Universal Offset Dumper\n";
+    f << "// Target: " << m_processName << " (PID: " << m_pm.GetPid() << ")\n\n";
     f << "namespace Offsets {\n";
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
-            f << "    constexpr unsigned long long " << sig.name << " = 0x"
-              << std::hex << std::uppercase << (sig.result - base) << ";\n";
+            std::string safeName = Utils::SanitizeIdentifier(sig.name);
+            f << "    // Original Name: " << sig.name << "\n";
+            f << "    constexpr unsigned long long " << safeName << " = 0x"
+              << std::hex << std::uppercase << (sig.result - base) << ";\n\n";
         }
     }
     f << "}\n";

@@ -25,12 +25,20 @@
             "description": "NetworkManager for player info"
         },
         {
-            "name": "RenderView",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 50 18 48 8B C8",
-            "module": "RainbowSix.exe",
+            "name": "Minesweeper_Timer",
+            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08 48 85 C9 74 ? 48 8B 05 ? ? ? ? 48 8B 80",
+            "module": "Minesweeper.exe",
             "offset": 0,
             "relative": true,
-            "description": "RenderView for FOV/Camera"
+            "description": "Minesweeper timer value pointer"
+        },
+        {
+            "name": "Minesweeper_Grid",
+            "pattern": "48 8B 0D ? ? ? ? E8 ? ? ? ? 48 8B D0 48 8B CF E8",
+            "module": "Minesweeper.exe",
+            "offset": 0,
+            "relative": true,
+            "description": "Minesweeper grid base address"
         },
         {
             "name": "ProfileManager",
