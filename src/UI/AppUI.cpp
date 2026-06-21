@@ -1017,11 +1017,43 @@ void AppUI::RenderHexViewerTab() {
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {
+                    uintptr_t currentByteAddr = m_hexBase + i * 16 + j;
                     uint8_t b = buffer[i * 16 + j];
-                    if (b == 0) ImGui::TextDisabled("00 ");
-                    else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
-                    else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
-                    else ImGui::Text("%02X ", b);
+
+                    char label[16];
+                    sprintf(label, "%02X##hex_%llX", b, (unsigned long long)currentByteAddr);
+
+                    if (b == 0) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                    else if (b >= 32 && b <= 126) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 1.0f, 0.4f, 1.0f));
+                    else if (b == 0xFF) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+
+                    if (ImGui::Selectable(label, m_hexSelectedAddr == currentByteAddr, ImGuiSelectableFlags_None, ImVec2(ImGui::CalcTextSize("FF").x, 0))) {
+                        m_hexSelectedAddr = currentByteAddr;
+                        m_hexEditVal = b;
+                    }
+
+                    if (b == 0 || (b >= 32 && b <= 126) || b == 0xFF) ImGui::PopStyleColor();
+
+                    if (ImGui::BeginPopupContextItem()) {
+                        m_hexSelectedAddr = currentByteAddr;
+                        ImGui::Text("Address: 0x%llX", (unsigned long long)currentByteAddr);
+                        ImGui::Separator();
+                        static char editBuf[4] = "";
+                        if (ImGui::IsWindowAppearing()) sprintf(editBuf, "%02X", b);
+                        ImGui::Text("New Value (Hex):");
+                        ImGui::SetNextItemWidth(50);
+                        if (ImGui::InputText("##editval", editBuf, sizeof(editBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            uint8_t newVal = (uint8_t)std::stoul(editBuf, nullptr, 16);
+                            if (m_pm.WriteMemory(currentByteAddr, &newVal, 1)) {
+                                AddLog("Wrote 0x" + std::string(editBuf) + " to 0x" + Utils::ToHex(currentByteAddr), LogSeverity::Success);
+                            } else {
+                                AddLog("Failed to write to 0x" + Utils::ToHex(currentByteAddr), LogSeverity::Error);
+                            }
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+
                     ImGui::SameLine();
                 }
 
@@ -1029,9 +1061,19 @@ void AppUI::RenderHexViewerTab() {
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {
+                    uintptr_t currentByteAddr = m_hexBase + i * 16 + j;
                     char c = buffer[i * 16 + j];
-                    if (c >= 32 && c <= 126) ImGui::Text("%c", c);
-                    else ImGui::TextDisabled(".");
+                    char label[16];
+                    sprintf(label, "%c##char_%llX", (c >= 32 && c <= 126) ? c : '.', (unsigned long long)currentByteAddr);
+
+                    if (c < 32 || c > 126) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+
+                    if (ImGui::Selectable(label, m_hexSelectedAddr == currentByteAddr, ImGuiSelectableFlags_None, ImVec2(ImGui::CalcTextSize("W").x, 0))) {
+                        m_hexSelectedAddr = currentByteAddr;
+                    }
+
+                    if (c < 32 || c > 126) ImGui::PopStyleColor();
+
                     ImGui::SameLine();
                 }
                 ImGui::NewLine();
