@@ -38,6 +38,71 @@ static bool SupportsSSE42() {
     return (info[2] & (1 << 20)) != 0;
 }
 
+template<typename T>
+static bool Compare(T mVal, T pVal, T vVal, T vVal2, ScanType scanType) {
+    switch (scanType) {
+        case ScanType::ExactValue: return mVal == vVal;
+        case ScanType::GreaterThan: return mVal > vVal;
+        case ScanType::LessThan: return mVal < vVal;
+        case ScanType::Between: return mVal >= vVal && mVal <= vVal2;
+        case ScanType::Increased: return mVal > pVal;
+        case ScanType::Decreased: return mVal < pVal;
+        case ScanType::Changed: return mVal != pVal;
+        case ScanType::Unchanged: return mVal == pVal;
+        case ScanType::UnknownInitial: return true;
+        default: return false;
+    }
+}
+
+template<typename T>
+static void ScanRegionTyped(const ProcessManager& pm, const RegionInfo& region, ScanType scanType, T v1, T v2, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues, bool modifyProtection, std::atomic<bool>& cancelRequested) {
+    const size_t bufferSize = 64 * 1024;
+    std::vector<uint8_t> buffer(bufferSize);
+    size_t typeSize = sizeof(T);
+
+    for (size_t offset = 0; offset < region.size; ) {
+        if (cancelRequested) break;
+
+        size_t toRead = (std::min)(bufferSize, region.size - offset);
+        if (!pm.ReadMemory(region.baseAddress + offset, buffer.data(), toRead, modifyProtection)) {
+            offset += bufferSize;
+            continue;
+        }
+
+        size_t scanLimit = (toRead >= typeSize) ? (toRead - typeSize) : 0;
+        for (size_t i = 0; i <= scanLimit; ++i) {
+            T mVal = *(const T*)(buffer.data() + i);
+            if (Compare<T>(mVal, (T)0, v1, v2, scanType)) {
+                localResults.push_back(region.baseAddress + offset + i);
+                localValues.insert(localValues.end(), buffer.data() + i, buffer.data() + i + typeSize);
+            }
+        }
+
+        if (toRead < bufferSize) break;
+        offset += (bufferSize - typeSize + 1);
+    }
+}
+
+template<typename T>
+static void NextScanTyped(const ProcessManager& pm, const std::vector<uintptr_t>& addresses, const std::vector<uint8_t>& values, size_t start, size_t end, ScanType scanType, T v1, T v2, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues, bool modifyProtection, std::atomic<bool>& cancelRequested) {
+    size_t typeSize = sizeof(T);
+    std::vector<uint8_t> buffer(typeSize);
+
+    for (size_t j = start; j < end; ++j) {
+        if (cancelRequested) break;
+
+        uintptr_t addr = addresses[j];
+        if (pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
+            T mVal = *(const T*)buffer.data();
+            T pVal = *(const T*)(values.data() + (j * typeSize));
+            if (Compare<T>(mVal, pVal, v1, v2, scanType)) {
+                localResults.push_back(addr);
+                localValues.insert(localValues.end(), buffer.data(), buffer.data() + typeSize);
+            }
+        }
+    }
+}
+
 MemoryScanner::MemoryScanner(const ProcessManager& pm) : m_pm(pm) {}
 
 void MemoryScanner::Reset() {
@@ -204,7 +269,7 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
         std::vector<std::future<ScanSnapshot>> futures;
 
         size_t chunkSize = (total + numThreads - 1) / numThreads;
-        if (chunkSize < 100) chunkSize = 100;
+        if (chunkSize < 1000) chunkSize = 1000;
 
         std::mutex progressMutex;
         size_t processedCount = 0;
@@ -213,21 +278,42 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
             size_t end = (std::min)(i + chunkSize, total);
             futures.push_back(pool.Enqueue([this, i, end, &prevScan, val, scanType, modifyProtection, typeSize, &progressMutex, &processedCount, total]() {
                 ScanSnapshot localRes;
-                localRes.addresses.reserve((end - i) / 2);
-                localRes.values.reserve(((end - i) / 2) * typeSize);
+                localRes.addresses.reserve((end - i) / 4); // Heuristic
+                localRes.values.reserve(((end - i) / 4) * typeSize);
 
-                std::vector<uint8_t> buffer(typeSize);
+                #define DISPATCH_NEXT_SCAN(type_enum, type_cast) \
+                    case DataType::type_enum: \
+                        NextScanTyped<type_cast>(m_pm, prevScan.addresses, prevScan.values, i, end, scanType, \
+                            std::get<type_cast>(val.value), \
+                            (scanType == ScanType::Between ? std::get<type_cast>(val.value2) : (type_cast)0), \
+                            localRes.addresses, localRes.values, modifyProtection, m_cancelRequested); \
+                        break;
 
-                for (size_t j = i; j < end; ++j) {
-                    if (m_cancelRequested) break;
-
-                    uintptr_t addr = prevScan.addresses[j];
-                    if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
-                        if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
-                            localRes.addresses.push_back(addr);
-                            localRes.values.insert(localRes.values.end(), buffer.begin(), buffer.end());
+                switch (val.type) {
+                    DISPATCH_NEXT_SCAN(Int8, int8_t)
+                    DISPATCH_NEXT_SCAN(Uint8, uint8_t)
+                    DISPATCH_NEXT_SCAN(Int16, int16_t)
+                    DISPATCH_NEXT_SCAN(Uint16, uint16_t)
+                    DISPATCH_NEXT_SCAN(Int32, int32_t)
+                    DISPATCH_NEXT_SCAN(Uint32, uint32_t)
+                    DISPATCH_NEXT_SCAN(Int64, int64_t)
+                    DISPATCH_NEXT_SCAN(Uint64, uint64_t)
+                    DISPATCH_NEXT_SCAN(Float, float)
+                    DISPATCH_NEXT_SCAN(Double, double)
+                    default: {
+                        // Fallback for non-numeric types
+                        std::vector<uint8_t> buffer(typeSize);
+                        for (size_t j = i; j < end; ++j) {
+                            if (m_cancelRequested) break;
+                            uintptr_t addr = prevScan.addresses[j];
+                            if (m_pm.ReadMemory(addr, buffer.data(), typeSize, modifyProtection)) {
+                                if (CompareValues(buffer.data(), prevScan.values.data() + (j * typeSize), val, scanType, typeSize)) {
+                                    localRes.addresses.push_back(addr);
+                                    localRes.values.insert(localRes.values.end(), buffer.begin(), buffer.end());
+                                }
+                            }
                         }
-                    }
+                    } break;
                 }
 
                 {
@@ -255,12 +341,40 @@ void MemoryScanner::NextScan(const ScanValue& val, ScanType scanType, bool modif
 }
 
 void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, ScanType scanType, std::vector<uintptr_t>& localResults, std::vector<uint8_t>& localValues, bool modifyProtection) {
+    size_t typeSize = GetDataTypeSize(val.type, val);
+    if (typeSize == 0) return;
+
+    // Use SIMD only for Exact Value with 4/8 byte types
+    bool useSIMD = (scanType == ScanType::ExactValue && (val.type == DataType::Int32 || val.type == DataType::Uint32 || val.type == DataType::Int64 || val.type == DataType::Uint64));
+
+    if (!useSIMD) {
+        #define DISPATCH_SCAN_REGION(type_enum, type_cast) \
+            case DataType::type_enum: \
+                { \
+                    type_cast v1 = std::get<type_cast>(val.value); \
+                    type_cast v2 = (scanType == ScanType::Between ? std::get<type_cast>(val.value2) : (type_cast)0); \
+                    ScanRegionTyped<type_cast>(m_pm, region, scanType, v1, v2, localResults, localValues, modifyProtection, m_cancelRequested); \
+                } \
+                return;
+
+        switch (val.type) {
+            DISPATCH_SCAN_REGION(Int8, int8_t)
+            DISPATCH_SCAN_REGION(Uint8, uint8_t)
+            DISPATCH_SCAN_REGION(Int16, int16_t)
+            DISPATCH_SCAN_REGION(Uint16, uint16_t)
+            DISPATCH_SCAN_REGION(Int32, int32_t)
+            DISPATCH_SCAN_REGION(Uint32, uint32_t)
+            DISPATCH_SCAN_REGION(Int64, int64_t)
+            DISPATCH_SCAN_REGION(Uint64, uint64_t)
+            DISPATCH_SCAN_REGION(Float, float)
+            DISPATCH_SCAN_REGION(Double, double)
+            default: break;
+        }
+    }
+
+    // SIMD path or fallback for non-numeric types
     const size_t bufferSize = 64 * 1024;
     std::vector<uint8_t> buffer(bufferSize);
-    size_t typeSize = GetDataTypeSize(val.type, val);
-    if (typeSize == 0 || typeSize > bufferSize) return;
-
-    bool useSIMD = (scanType == ScanType::ExactValue && (typeSize == 4 || typeSize == 8));
     bool hasAVX2 = useSIMD && SupportsAVX2();
     bool hasSSE42 = useSIMD && SupportsSSE42();
 
@@ -347,22 +461,6 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
 
         if (toRead < bufferSize) break;
         offset += (bufferSize - typeSize + 1);
-    }
-}
-
-template<typename T>
-bool Compare(T mVal, T pVal, T vVal, T vVal2, ScanType scanType) {
-    switch (scanType) {
-        case ScanType::ExactValue: return mVal == vVal;
-        case ScanType::GreaterThan: return mVal > vVal;
-        case ScanType::LessThan: return mVal < vVal;
-        case ScanType::Between: return mVal >= vVal && mVal <= vVal2;
-        case ScanType::Increased: return mVal > pVal;
-        case ScanType::Decreased: return mVal < pVal;
-        case ScanType::Changed: return mVal != pVal;
-        case ScanType::Unchanged: return mVal == pVal;
-        case ScanType::UnknownInitial: return true;
-        default: return false;
     }
 }
 

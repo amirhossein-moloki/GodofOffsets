@@ -15,10 +15,10 @@ std::vector<OffsetResult> OffsetDumper::DumpModule(const std::string& moduleName
 
     if (mod.baseAddress == 0) return results;
 
-    results.push_back({ 0, moduleName, "Base", "uintptr_t", "" });
+    results.push_back({ 0, moduleName, "Base", "uintptr_t", "", "" });
 
     for (const auto& section : mod.sections) {
-        results.push_back({ section.virtualAddress - mod.baseAddress, moduleName, section.name, "Section", "" });
+        results.push_back({ section.virtualAddress - mod.baseAddress, moduleName, section.name, "Section", "", "" });
     }
 
     return results;
@@ -51,6 +51,7 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
                             moduleName,
                             section.name + "+" + Utils::ToHex(i),
                             "Pointer",
+                            Utils::ToHex(value),
                             targetMod.name + "+" + Utils::ToHex(value - targetMod.baseAddress)
                         });
                         break;
@@ -66,13 +67,37 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
 std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, uintptr_t end, const std::string& type) {
     std::vector<OffsetResult> results;
     size_t typeSize = 4;
-    if (type.find("64") != std::string::npos || type == "double" || type == "uintptr_t") typeSize = 8;
-    else if (type.find("16") != std::string::npos) typeSize = 2;
-    else if (type.find("8") != std::string::npos) typeSize = 1;
+    std::string t = type;
+    std::transform(t.begin(), t.end(), t.begin(), ::tolower);
+
+    if (t.find("64") != std::string::npos || t == "double" || t == "uintptr_t" || t == "pointer") typeSize = 8;
+    else if (t.find("16") != std::string::npos) typeSize = 2;
+    else if (t.find("8") != std::string::npos) typeSize = 1;
+
+    auto modules = m_pm.GetModules();
 
     for (uintptr_t addr = start; addr < end; addr += typeSize) {
         std::string val = FormatValue(addr, type);
-        results.push_back({ addr - start, "", "offset_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << (addr - start))).str(), type, val });
+
+        std::string modName = "";
+        uintptr_t offset = addr;
+
+        for (const auto& mod : modules) {
+            if (addr >= mod.baseAddress && addr < mod.baseAddress + mod.imageSize) {
+                modName = mod.name;
+                offset = addr - mod.baseAddress;
+                break;
+            }
+        }
+
+        results.push_back({
+            offset,
+            modName,
+            "addr_" + Utils::ToHex(addr, false),
+            type,
+            val,
+            modName.empty() ? "" : (modName + "+" + Utils::ToHex(offset))
+        });
     }
     return results;
 }
@@ -85,6 +110,8 @@ std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, con
         for (const auto& f : def.fields) stride = (std::max)(stride, f.offset + 8);
     }
 
+    auto modules = m_pm.GetModules();
+
     for (int i = 0; i < count; ++i) {
         uintptr_t currentBase = baseAddress + (i * stride);
         for (const auto& field : def.fields) {
@@ -92,7 +119,18 @@ std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, con
             std::string value = FormatValue(fieldAddr, field.type);
             std::string name = field.name;
             if (count > 1) name += "[" + std::to_string(i) + "]";
-            results.push_back({ (size_t)(fieldAddr - baseAddress), "", name, field.type, value });
+
+            std::string modName = "";
+            uintptr_t offset = fieldAddr;
+            for (const auto& mod : modules) {
+                if (fieldAddr >= mod.baseAddress && fieldAddr < mod.baseAddress + mod.imageSize) {
+                    modName = mod.name;
+                    offset = fieldAddr - mod.baseAddress;
+                    break;
+                }
+            }
+
+            results.push_back({ offset, modName, name, field.type, value, modName.empty() ? "" : (modName + "+" + Utils::ToHex(offset)) });
         }
     }
 
