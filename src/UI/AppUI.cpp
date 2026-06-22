@@ -85,53 +85,40 @@ void AppUI::Render() {
         if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
-    RenderHeader();
-    ImGui::Separator();
-
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
-            m_activeTab = TabID::None;
+    // Handling window focus via shortcuts
+    if (m_activeTab != TabID::None) {
+        const char* windowName = nullptr;
+        switch (m_activeTab) {
+            case TabID::Process: windowName = "Process List"; break;
+            case TabID::MemoryScanner: windowName = "Memory Scanner"; break;
+            case TabID::SignatureScanner: windowName = "Signature Scanner"; break;
+            case TabID::PointerScanner: windowName = "Pointer Scan"; break;
+            case TabID::Dumper: windowName = "Structure Dumper"; break;
+            case TabID::HexViewer: windowName = "Hex Viewer"; break;
+            case TabID::ActivityLog: windowName = "Activity Log"; break;
+            default: break;
         }
-
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
-
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
+        if (windowName) ImGui::SetWindowFocus(windowName);
+        m_activeTab = TabID::None;
     }
 
+    // Temporary wrapping in ImGui::Begin while refactoring individual tabs into windows
+    if (ImGui::Begin("Status & Progress")) {
+        RenderHeader();
+    }
     ImGui::End();
+
+    RenderProcessTab();
+    RenderMemoryScannerTab();
+    RenderSignatureTab();
+
+    RenderPointerScanTab();
+    RenderDumperTab();
+
+    RenderHexViewerTab();
+    RenderActivityLogTab();
 }
 
 void AppUI::RenderHeader() {
@@ -210,7 +197,8 @@ void AppUI::RenderProcessPicker() {
 }
 
 void AppUI::RenderProcessTab() {
-    ImGui::Columns(2, "proc_cols", false);
+    if (ImGui::Begin("Process List")) {
+        ImGui::Columns(2, "proc_cols", false);
     ImGui::SetColumnWidth(0, 450);
 
     RenderProcessPicker();
@@ -326,9 +314,16 @@ void AppUI::RenderProcessTab() {
             ImGui::EndChild();
         }
     }
+    ImGui::End();
 }
 
 void AppUI::RenderMemoryScannerTab() {
+    if (ImGui::Begin("Memory Scanner")) {
+        if (!m_isAttached) {
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Attachment required to use the Memory Scanner.");
+            ImGui::End();
+            return;
+        }
     const char* dataTypes[] = { "Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32", "Int64", "Uint64", "Float", "Double", "String", "AOB" };
     int currentDataType = (int)m_selectedDataType;
     if (ImGui::Combo("Data Type", &currentDataType, dataTypes, 12)) {
@@ -517,6 +512,7 @@ void AppUI::RenderMemoryScannerTab() {
         }
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 Core::ScanValue AppUI::GetCurrentScanValue() {
@@ -562,7 +558,13 @@ Core::ScanValue AppUI::GetCurrentScanValue() {
 }
 
 void AppUI::RenderSignatureTab() {
-    ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
+    if (ImGui::Begin("Signature Scanner")) {
+        if (!m_isAttached) {
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Attachment required to use the Signature Scanner.");
+            ImGui::End();
+            return;
+        }
+        ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35))) {
         AddLog("Starting signature scan...", LogSeverity::Info);
         m_status = "Scanning...";
@@ -668,9 +670,16 @@ void AppUI::RenderSignatureTab() {
         }
         ImGui::EndTable();
     }
+    ImGui::End();
 }
 
 void AppUI::RenderPointerScanTab() {
+    if (ImGui::Begin("Pointer Scan")) {
+        if (!m_isAttached) {
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Attachment required to use Pointer Scan.");
+            ImGui::End();
+            return;
+        }
     static char targetAddrStr[32] = "";
     ImGui::InputText("Target Address", targetAddrStr, sizeof(targetAddrStr));
     ImGui::InputInt("Max Depth", &m_ptrDepth);
@@ -741,9 +750,16 @@ void AppUI::RenderPointerScanTab() {
         }
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 void AppUI::RenderDumperTab() {
+    if (ImGui::Begin("Structure Dumper")) {
+        if (!m_isAttached) {
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Attachment required to use the Structure Dumper.");
+            ImGui::End();
+            return;
+        }
     if (ImGui::CollapsingHeader("Structure Dumper", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::InputText("Struct Name", m_structName, sizeof(m_structName), ImGuiInputTextFlags_EnterReturnsTrue);
@@ -891,6 +907,7 @@ void AppUI::RenderDumperTab() {
             AddLog("Changes saved to JSON.", LogSeverity::Success);
         }
     }
+    ImGui::End();
 }
 
 void AppUI::RenderEmptyState(const char* message, const char* suggestion) {
@@ -945,6 +962,12 @@ void AppUI::JumpToHex(uintptr_t addr) {
 }
 
 void AppUI::RenderHexViewerTab() {
+    if (ImGui::Begin("Hex Viewer")) {
+        if (!m_isAttached) {
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Attachment required to use the Hex Viewer.");
+            ImGui::End();
+            return;
+        }
     // Navigation History
     ImGui::BeginGroup();
     if (ImGui::Button("<", ImVec2(30, 0)) && m_historyIndex > 0) {
@@ -1041,6 +1064,7 @@ void AppUI::RenderHexViewerTab() {
         }
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 void AppUI::AddLog(const std::string& message, LogSeverity severity) {
@@ -1064,6 +1088,7 @@ void AppUI::AddLog(const std::string& message, LogSeverity severity) {
 }
 
 void AppUI::RenderActivityLogTab() {
+    if (ImGui::Begin("Activity Log")) {
     if (ImGui::Button("Clear Log")) {
         std::lock_guard<std::mutex> lock(m_logMutex);
         m_activityLog.clear();
@@ -1107,6 +1132,7 @@ void AppUI::RenderActivityLogTab() {
 
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 void AppUI::ExportToHeader() {
@@ -1116,7 +1142,7 @@ void AppUI::ExportToHeader() {
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
-            f << "    constexpr unsigned long long " << sig.name << " = 0x"
+            f << "    constexpr unsigned long long " << Utils::SanitizeIdentifier(sig.name) << " = 0x"
               << std::hex << std::uppercase << (sig.result - base) << ";\n";
         }
     }
