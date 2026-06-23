@@ -9,6 +9,7 @@
 #include <atomic>
 #include <set>
 #include <mutex>
+#include <future>
 #include "Core/ProcessManager.h"
 #include "Utils/ArenaAllocator.h"
 
@@ -46,6 +47,7 @@ private:
     std::atomic<bool> m_cancelRequested{false};
     std::atomic<float> m_progress{0.0f};
     std::mutex m_resultsMutex;
+    std::future<void> m_scanFuture;
 
     // Optimized pointer map
     Utils::ArenaAllocator m_arena;

@@ -13,9 +13,15 @@ namespace Core {
 PointerScanner::PointerScanner(const ProcessManager& pm) : m_pm(pm) {}
 
 void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t maxOffset) {
-    if (m_isScanning) return;
+    if (m_isScanning) {
+        if (m_scanFuture.valid() && m_scanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            m_scanFuture.get(); // Clean up previous future
+        } else {
+            return;
+        }
+    }
 
-    std::thread([this, targetAddress, maxDepth, maxOffset]() {
+    m_scanFuture = std::async(std::launch::async, [this, targetAddress, maxDepth, maxOffset]() {
         m_isScanning = true;
         m_cancelRequested = false;
         m_progress = 0.0f;
@@ -41,7 +47,7 @@ void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t max
 
         m_progress = 1.0f;
         m_isScanning = false;
-    }).detach();
+    });
 }
 
 void PointerScanner::BuildPointerMap() {

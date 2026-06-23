@@ -29,14 +29,19 @@ std::vector<ProcessInfo> ProcessManager::GetProcessList() {
     PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
 
+    SYSTEM_INFO si;
+    GetNativeSystemInfo(&si);
+    bool isHost64Bit = (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
+                        si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64);
+
     if (Process32First(hSnapshot, &pe32)) {
         do {
-            bool is64Bit = true;
+            bool is64Bit = isHost64Bit;
             HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe32.th32ProcessID);
             if (hProc) {
                 BOOL wow64 = FALSE;
                 if (IsWow64Process(hProc, &wow64)) {
-                    is64Bit = !wow64;
+                    is64Bit = isHost64Bit && !wow64;
                 }
                 CloseHandle(hProc);
             }
@@ -76,8 +81,12 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
         if (m_hProcess.IsValid()) {
             BOOL wow64 = FALSE;
             if (IsWow64Process(m_hProcess, &wow64)) {
-                m_is64Bit = !wow64;
+                SYSTEM_INFO si;
+                GetNativeSystemInfo(&si);
+                m_is64Bit = (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) && !wow64;
             }
+        } else {
+            std::cerr << "[!] Attach failed for PID " << pid << ". Error: " << GetLastError() << std::endl;
         }
 
         return m_hProcess.IsValid();
@@ -401,8 +410,12 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
     bool success = ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
 
     if (!success) {
-        // Optional: Only log errors if we are not in a massive scan to avoid console spam
-        // std::cerr << "[!] ReadProcessMemory failed at 0x" << std::hex << address << " Error: " << GetLastError() << std::endl;
+        static DWORD lastError = 0;
+        DWORD currentError = GetLastError();
+        if (currentError != lastError) {
+            std::cerr << "[!] ReadProcessMemory failed at 0x" << std::hex << address << " Error: " << currentError << std::endl;
+            lastError = currentError;
+        }
     }
 
     if (modifyProtection && oldProtect != 0) {

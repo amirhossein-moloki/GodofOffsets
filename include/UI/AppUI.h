@@ -88,6 +88,9 @@ private:
     uintptr_t m_rangeEnd = 0;
     char m_rangeType[32] = "uint32";
 
+    // Async tasks
+    std::future<void> m_sigScanFuture;
+
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
