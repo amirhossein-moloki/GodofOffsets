@@ -158,28 +158,30 @@ std::vector<Signature> Scanner::LoadSignatures(const std::string& filename) {
     return sigs;
 }
 
-void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
-    std::vector<std::future<void>> futures;
+std::future<void> Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
+    return std::async(std::launch::async, [this, &sigs, isVulkan]() {
+        std::vector<std::future<void>> futures;
 
-    for (auto& sig : sigs) {
-        if (isVulkan && sig.moduleName == "RainbowSix.exe") {
-            sig.moduleName = "RainbowSix_Vulkan.exe";
+        for (auto& sig : sigs) {
+            if (isVulkan && sig.moduleName == "RainbowSix.exe") {
+                sig.moduleName = "RainbowSix_Vulkan.exe";
+            }
+
+            futures.push_back(std::async(std::launch::async, [this, &sig]() {
+                uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
+                if (addr) {
+                    addr += sig.offset;
+                    if (sig.isRelative) {
+                        sig.result = m_resolver.ResolveWithZydis(addr);
+                    } else {
+                        sig.result = addr;
+                    }
+                }
+            }));
         }
 
-        futures.push_back(std::async(std::launch::async, [this, &sig]() {
-            uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
-            if (addr) {
-                addr += sig.offset;
-                if (sig.isRelative) {
-                    sig.result = m_resolver.ResolveWithZydis(addr);
-                } else {
-                    sig.result = addr;
-                }
-            }
-        }));
-    }
-
-    for (auto& f : futures) f.wait();
+        for (auto& f : futures) f.wait();
+    });
 }
 
 } // namespace Core

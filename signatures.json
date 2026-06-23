@@ -17,36 +17,20 @@
             "description": "Global Entity List pointer"
         },
         {
-            "name": "NetworkManager",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B D7 FF 50 30",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "Minesweeper_Timer",
+            "pattern": "FF 35 ? ? ? ? FF 15 ? ? ? ? 8B 0D",
+            "module": "Minesweeper.exe",
+            "offset": 2,
             "relative": true,
-            "description": "NetworkManager for player info"
+            "description": "Minesweeper Timer address"
         },
         {
-            "name": "RenderView",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 50 18 48 8B C8",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "Minesweeper_Mines",
+            "pattern": "8B 0D ? ? ? ? 51 FF 15 ? ? ? ? 83 C4 04",
+            "module": "Minesweeper.exe",
+            "offset": 2,
             "relative": true,
-            "description": "RenderView for FOV/Camera"
-        },
-        {
-            "name": "ProfileManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 70 48 85 C9 74 0F",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "ProfileManager for local player"
-        },
-        {
-            "name": "RoundManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 18 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "Round states and timers"
+            "description": "Minesweeper Mines count address"
         }
     ]
 }
