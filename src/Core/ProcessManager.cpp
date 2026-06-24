@@ -1,4 +1,5 @@
 #include "Core/ProcessManager.h"
+#include "Utils/FormatUtils.h"
 #include <iostream>
 #include <algorithm>
 #include <fstream>
@@ -67,10 +68,16 @@ bool ProcessManager::Attach(DWORD pid, MemoryMode mode) {
     } else {
         m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
 
-        if (!m_hProcess.IsValid() && GetLastError() == ERROR_ACCESS_DENIED) {
-            if (EnableDebugPrivilege()) {
-                m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
+        if (!m_hProcess.IsValid()) {
+            std::string err = Utils::GetLastErrorString();
+            if (GetLastError() == ERROR_ACCESS_DENIED) {
+                if (EnableDebugPrivilege()) {
+                    m_hProcess = Utils::WinHandle(OpenProcess(PROCESS_VM_READ | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION, FALSE, m_pid));
+                    if (m_hProcess.IsValid()) return true;
+                    err = Utils::GetLastErrorString();
+                }
             }
+            std::cerr << "[!] Attach failed for PID " << m_pid << ": " << err << std::endl;
         }
 
         if (m_hProcess.IsValid()) {
@@ -401,8 +408,14 @@ bool ProcessManager::ReadMemory(uintptr_t address, void* buffer, size_t size, bo
     bool success = ReadProcessMemory(m_hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
 
     if (!success) {
-        // Optional: Only log errors if we are not in a massive scan to avoid console spam
-        // std::cerr << "[!] ReadProcessMemory failed at 0x" << std::hex << address << " Error: " << GetLastError() << std::endl;
+        DWORD currentError = GetLastError();
+        // Use thread_local to avoid data races and suppress redundant logging per-thread
+        thread_local DWORD lastError = 0;
+        if (currentError != lastError) {
+            std::string errStr = Utils::GetLastErrorString(currentError);
+            std::cerr << "[!] ReadProcessMemory failed at 0x" << std::hex << address << " (Size: " << size << ") Error: " << errStr << std::endl;
+            lastError = currentError;
+        }
     }
 
     if (modifyProtection && oldProtect != 0) {
@@ -426,7 +439,7 @@ bool ProcessManager::WriteMemory(uintptr_t address, const void* buffer, size_t s
     SIZE_T bytesWritten;
     bool success = WriteProcessMemory(m_hProcess, (LPVOID)address, buffer, size, &bytesWritten) && bytesWritten == size;
     if (!success) {
-        std::cerr << "[!] WriteProcessMemory failed at 0x" << std::hex << address << " Error: " << GetLastError() << std::endl;
+        std::cerr << "[!] WriteProcessMemory failed at 0x" << std::hex << address << " Error: " << Utils::GetLastErrorString() << std::endl;
     }
     return success;
 #else

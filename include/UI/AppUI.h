@@ -91,11 +91,22 @@ private:
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
+    uintptr_t m_editAddr = 0;
+    char m_editByteBuf[8] = "00";
     TabID m_activeTab = TabID::Process;
     std::vector<uintptr_t> m_hexHistory;
     int m_historyIndex = -1;
 
     bool m_showDisclaimer = true;
+
+    // Window Visibility
+    bool m_showProcessWindow = true;
+    bool m_showScannerWindow = false;
+    bool m_showSigScannerWindow = false;
+    bool m_showPointerScannerWindow = false;
+    bool m_showDumperWindow = false;
+    bool m_showHexViewerWindow = false;
+    bool m_showLogWindow = true;
 
     // Activity Log
     std::deque<LogEntry> m_activityLog;
