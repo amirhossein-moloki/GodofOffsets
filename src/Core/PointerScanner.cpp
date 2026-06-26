@@ -6,6 +6,7 @@
 #include <sstream>
 #include <thread>
 #include <mutex>
+#include <future>
 #include "Utils/ThreadPool.h"
 
 namespace Core {
@@ -13,9 +14,15 @@ namespace Core {
 PointerScanner::PointerScanner(const ProcessManager& pm) : m_pm(pm) {}
 
 void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t maxOffset) {
-    if (m_isScanning) return;
+    if (m_isScanning) {
+        if (m_scanFuture.valid() && m_scanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            m_scanFuture.get();
+        } else {
+            return;
+        }
+    }
 
-    std::thread([this, targetAddress, maxDepth, maxOffset]() {
+    m_scanFuture = std::async(std::launch::async, [this, targetAddress, maxDepth, maxOffset]() {
         m_isScanning = true;
         m_cancelRequested = false;
         m_progress = 0.0f;
@@ -35,13 +42,13 @@ void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t max
         m_progress = 0.8f; // Map building finished
 
         // Stage 2: Recursive chain discovery
-        std::set<uintptr_t> visited;
+        std::unordered_set<uintptr_t> visited;
         std::vector<uintptr_t> currentOffsets;
         FindChainsRecursive(targetAddress, 1, maxDepth, maxOffset, currentOffsets, visited);
 
         m_progress = 1.0f;
         m_isScanning = false;
-    }).detach();
+    });
 }
 
 void PointerScanner::BuildPointerMap() {
@@ -120,7 +127,7 @@ void PointerScanner::BuildPointerMap() {
     m_progress = 0.8f;
 }
 
-void PointerScanner::FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited) {
+void PointerScanner::FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::unordered_set<uintptr_t>& visited) {
     if (depth > maxDepth || m_cancelRequested || !m_pointerNodes) return;
     if (visited.count(currentTarget)) return;
     visited.insert(currentTarget);

@@ -47,6 +47,22 @@
             "offset": 0,
             "relative": true,
             "description": "Round states and timers"
+        },
+        {
+            "name": "Minesweeper_Timer",
+            "pattern": "A1 ? ? ? ? 40 A3 ? ? ? ? C7 05",
+            "module": "winmine.exe",
+            "offset": 1,
+            "relative": false,
+            "description": "Minesweeper timer address"
+        },
+        {
+            "name": "Minesweeper_MineCount",
+            "pattern": "8B 0D ? ? ? ? 89 0D ? ? ? ? C7 05",
+            "module": "winmine.exe",
+            "offset": 2,
+            "relative": false,
+            "description": "Minesweeper remaining mines count"
         }
     ]
 }
