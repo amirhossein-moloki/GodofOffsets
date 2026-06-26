@@ -6,6 +6,7 @@
 #include <chrono>
 #include <map>
 #include <algorithm>
+#include <format>
 
 namespace UI {
 
@@ -301,8 +302,8 @@ void AppUI::RenderProcessTab() {
                             JumpToHex(mod.baseAddress);
                         }
                         if (ImGui::MenuItem("Copy Base Address")) {
-                            char buf[32]; sprintf(buf, "0x%llX", (unsigned long long)mod.baseAddress);
-                            ImGui::SetClipboardText(buf);
+                            std::string addrStr = std::format("0x{:X}", (unsigned long long)mod.baseAddress);
+                            ImGui::SetClipboardText(addrStr.c_str());
                         }
                         ImGui::EndPopup();
                     }
@@ -432,31 +433,32 @@ void AppUI::RenderMemoryScannerTab() {
                     typeSize = snapshotValues.size() / results.size();
                 }
 
-                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr) {
+                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr, size_t outSize) {
                     switch (m_selectedDataType) {
-                        case Core::DataType::Int8:   sprintf(outStr, "%d", *(int8_t*)ptr); break;
-                        case Core::DataType::Uint8:  sprintf(outStr, "%u", *(uint8_t*)ptr); break;
-                        case Core::DataType::Int16:  sprintf(outStr, "%d", *(int16_t*)ptr); break;
-                        case Core::DataType::Uint16: sprintf(outStr, "%u", *(uint16_t*)ptr); break;
-                        case Core::DataType::Int32:  sprintf(outStr, "%d", *(int32_t*)ptr); break;
-                        case Core::DataType::Uint32: sprintf(outStr, "%u", *(uint32_t*)ptr); break;
-                        case Core::DataType::Int64:  sprintf(outStr, "%lld", *(int64_t*)ptr); break;
-                        case Core::DataType::Uint64: sprintf(outStr, "%llu", *(uint64_t*)ptr); break;
-                        case Core::DataType::Float:  sprintf(outStr, "%.4f", *(float*)ptr); break;
-                        case Core::DataType::Double: sprintf(outStr, "%.8f", *(double*)ptr); break;
+                        case Core::DataType::Int8:   snprintf(outStr, outSize, "%d", *(int8_t*)ptr); break;
+                        case Core::DataType::Uint8:  snprintf(outStr, outSize, "%u", *(uint8_t*)ptr); break;
+                        case Core::DataType::Int16:  snprintf(outStr, outSize, "%d", *(int16_t*)ptr); break;
+                        case Core::DataType::Uint16: snprintf(outStr, outSize, "%u", *(uint8_t*)ptr); break;
+                        case Core::DataType::Int32:  snprintf(outStr, outSize, "%d", *(int32_t*)ptr); break;
+                        case Core::DataType::Uint32: snprintf(outStr, outSize, "%u", *(uint8_t*)ptr); break;
+                        case Core::DataType::Int64:  snprintf(outStr, outSize, "%lld", *(int64_t*)ptr); break;
+                        case Core::DataType::Uint64: snprintf(outStr, outSize, "%llu", *(uint64_t*)ptr); break;
+                        case Core::DataType::Float:  snprintf(outStr, outSize, "%.4f", *(float*)ptr); break;
+                        case Core::DataType::Double: snprintf(outStr, outSize, "%.8f", *(double*)ptr); break;
                         case Core::DataType::String: {
-                            size_t len = (std::min)(size, (size_t)63);
+                            size_t len = (std::min)(size, outSize - 1);
                             memcpy(outStr, ptr, len);
                             outStr[len] = '\0';
                             break;
                         }
                         case Core::DataType::AOB: {
-                            outStr[0] = '\0';
+                            std::string hex;
                             for (size_t k = 0; k < (std::min)(size, (size_t)16); ++k) {
-                                char b[4]; sprintf(b, "%02X ", ptr[k]);
-                                strcat(outStr, b);
+                                char b[4]; snprintf(b, sizeof(b), "%02X ", ptr[k]);
+                                hex += b;
                             }
-                            if (size > 16) strcat(outStr, "...");
+                            if (size > 16) hex += "...";
+                            snprintf(outStr, outSize, "%s", hex.c_str());
                             break;
                         }
                     }
@@ -488,7 +490,7 @@ void AppUI::RenderMemoryScannerTab() {
                         ImGui::TableSetColumnIndex(1);
                         if (i * typeSize < snapshotValues.size()) {
                             char valStr[128];
-                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr);
+                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr, sizeof(valStr));
                             ImGui::TextDisabled("%s", valStr);
                         }
 
@@ -497,7 +499,7 @@ void AppUI::RenderMemoryScannerTab() {
                         std::vector<uint8_t> liveBuf(typeSize);
                         if (m_pm.ReadMemory(results[i], liveBuf.data(), typeSize)) {
                             char liveStr[128];
-                            FormatValue(liveBuf.data(), typeSize, liveStr);
+                            FormatValue(liveBuf.data(), typeSize, liveStr, sizeof(liveStr));
 
                             // Highlight if changed
                             bool changed = false;
@@ -716,16 +718,13 @@ void AppUI::RenderPointerScanTab() {
             for (auto& modPair : m_groupedPtrResults) {
                 if (ImGui::TreeNodeEx(modPair.first.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                     for (auto& basePair : modPair.second) {
-                        char baseLabel[64];
-                        sprintf(baseLabel, "Base Offset: 0x%llX (%zu chains)", (unsigned long long)basePair.first, basePair.second.size());
-                        if (ImGui::TreeNode(baseLabel)) {
+                        std::string baseLabel = std::format("Base Offset: 0x{:X} ({} chains)", (unsigned long long)basePair.first, basePair.second.size());
+                        if (ImGui::TreeNode(baseLabel.c_str())) {
                             for (const auto& chain : basePair.second) {
-                                std::stringstream ss;
-                                ss << "Offsets: ";
+                                std::string chainStr = "Offsets: ";
                                 for (size_t i = 0; i < chain.offsets.size(); ++i) {
-                                    ss << (i == 0 ? "" : " -> ") << "0x" << std::hex << std::uppercase << chain.offsets[i];
+                                    chainStr += (i == 0 ? "" : " -> ") + std::format("0x{:X}", (unsigned long long)chain.offsets[i]);
                                 }
-                                std::string chainStr = ss.str();
                                 if (ImGui::Selectable(chainStr.c_str())) {
                                     ImGui::SetClipboardText(chainStr.c_str());
                                     AddLog("Copied pointer chain to clipboard.", LogSeverity::Info);
@@ -787,25 +786,25 @@ void AppUI::RenderDumperTab() {
     }
 
     for (size_t i = 0; i < m_structFields.size(); ++i) {
-        char nameId[32]; sprintf(nameId, "Name##%zu", i);
-        char offId[32]; sprintf(offId, "Off##%zu", i);
-        char typeId[32]; sprintf(typeId, "Type##%zu", i);
-        char removeId[32]; sprintf(removeId, "X##%zu", i);
+        std::string nameId = std::format("Name##{}", i);
+        std::string offId = std::format("Off##{}", i);
+        std::string typeId = std::format("Type##{}", i);
+        std::string removeId = std::format("X##{}", i);
 
         ImGui::PushItemWidth(100);
         char fieldName[64];
         size_t nameLen = m_structFields[i].name.copy(fieldName, sizeof(fieldName) - 1);
         fieldName[nameLen] = '\0';
-        if (ImGui::InputText(nameId, fieldName, sizeof(fieldName))) m_structFields[i].name = fieldName;
+        if (ImGui::InputText(nameId.c_str(), fieldName, sizeof(fieldName))) m_structFields[i].name = fieldName;
         ImGui::SameLine();
-        ImGui::InputScalar(offId, ImGuiDataType_U64, &m_structFields[i].offset, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
+        ImGui::InputScalar(offId.c_str(), ImGuiDataType_U64, &m_structFields[i].offset, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal);
         ImGui::SameLine();
         const char* types[] = { "uintptr_t", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float", "double" };
         int currentType = 0;
         for (int k = 0; k < 11; ++k) if (m_structFields[i].type == types[k]) currentType = k;
-        if (ImGui::Combo(typeId, &currentType, types, 11)) m_structFields[i].type = types[currentType];
+        if (ImGui::Combo(typeId.c_str(), &currentType, types, 11)) m_structFields[i].type = types[currentType];
         ImGui::SameLine();
-        if (ImGui::Button(removeId)) {
+        if (ImGui::Button(removeId.c_str())) {
             m_structFields.erase(m_structFields.begin() + i);
             i--;
         }
@@ -927,7 +926,8 @@ void AppUI::JumpToHex(uintptr_t addr) {
     m_hexBase = addr;
     AddLog("Jumping to address: " + Utils::ToHex(addr) + " in Hex Viewer", LogSeverity::Info);
 
-    sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+    std::string hexStr = std::format("{:X}", (unsigned long long)m_hexBase);
+    snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%s", hexStr.c_str());
 
     // Add to history
     if (m_historyIndex == -1 || m_hexHistory[m_historyIndex] != addr) {
@@ -950,7 +950,8 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::Button("<", ImVec2(30, 0)) && m_historyIndex > 0) {
         m_historyIndex--;
         m_hexBase = m_hexHistory[m_historyIndex];
-        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+        std::string hexStr = std::format("{:X}", (unsigned long long)m_hexBase);
+        snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%s", hexStr.c_str());
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go Back");
 
@@ -958,7 +959,8 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::Button(">", ImVec2(30, 0)) && m_historyIndex < (int)m_hexHistory.size() - 1) {
         m_historyIndex++;
         m_hexBase = m_hexHistory[m_historyIndex];
-        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+        std::string hexStr = std::format("{:X}", (unsigned long long)m_hexBase);
+        snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%s", hexStr.c_str());
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go Forward");
     ImGui::EndGroup();
@@ -1109,6 +1111,24 @@ void AppUI::RenderActivityLogTab() {
     }
 }
 
+static std::string SanitizeIdentifier(const std::string& name) {
+    std::string result = name;
+    if (result.empty()) return "offset";
+
+    // Handle leading numbers
+    if (isdigit((unsigned char)result[0])) {
+        result = "_" + result;
+    }
+
+    // Replace non-alphanumeric with underscores
+    for (char& c : result) {
+        if (!isalnum((unsigned char)c)) {
+            c = '_';
+        }
+    }
+    return result;
+}
+
 void AppUI::ExportToHeader() {
     std::ofstream f("offsets.h");
     f << "#pragma once\n\n";
@@ -1116,7 +1136,7 @@ void AppUI::ExportToHeader() {
     for (const auto& sig : m_sigs) {
         if (sig.result) {
             uintptr_t base = m_pm.GetModuleBase(sig.moduleName);
-            f << "    constexpr unsigned long long " << sig.name << " = 0x"
+            f << "    constexpr unsigned long long " << SanitizeIdentifier(sig.name) << " = 0x"
               << std::hex << std::uppercase << (sig.result - base) << ";\n";
         }
     }
