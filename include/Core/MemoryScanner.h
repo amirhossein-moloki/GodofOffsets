@@ -44,11 +44,25 @@ struct ScanValue {
     std::variant<int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t, float, double> value2;
 };
 
+/**
+ * @class MemoryScanner
+ * @brief High-performance memory scanning engine.
+ * موتور اسکن حافظه با کارایی بالا.
+ */
 class MemoryScanner {
 public:
     MemoryScanner(const ProcessManager& pm);
 
+    /**
+     * @brief Initiates a new memory scan.
+     * شروع یک اسکن حافظه جدید.
+     */
     void FirstScan(const ScanValue& val, ScanType scanType, bool modifyProtection = false);
+
+    /**
+     * @brief Filters existing scan results.
+     * فیلتر کردن نتایج اسکن موجود.
+     */
     void NextScan(const ScanValue& val, ScanType scanType, bool modifyProtection = false);
     void Undo();
 

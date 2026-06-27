@@ -82,6 +82,7 @@ private:
     size_t m_structSize = 0;
     std::vector<Core::StructField> m_structFields;
     std::vector<Core::OffsetResult> m_dumpedResults;
+    int m_exportFormat = 0; // 0: JSON, 1: CSV, 2: Text
 
     // Range Dump UI
     uintptr_t m_rangeStart = 0;

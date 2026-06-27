@@ -72,6 +72,11 @@ struct ProcessInfo {
     bool is64Bit;
 };
 
+/**
+ * @class ProcessManager
+ * @brief Manages process attachment, module enumeration, and memory operations.
+ * مدیریت اتصال به پردازش، لیست کردن ماژول‌ها و عملیات حافظه.
+ */
 class ProcessManager {
 public:
     ProcessManager();
@@ -81,7 +86,16 @@ public:
     ProcessManager(const ProcessManager&) = delete;
     ProcessManager& operator=(const ProcessManager&) = delete;
 
+    /**
+     * @brief Retrieves a list of currently running processes.
+     * دریافت لیست پردازش‌های در حال اجرا.
+     */
     static std::vector<ProcessInfo> GetProcessList();
+
+    /**
+     * @brief Attaches to a target process by PID.
+     * اتصال به پردازش هدف از طریق شناسه‌ی پردازش.
+     */
     bool Attach(DWORD pid, MemoryMode mode = MemoryMode::Standard);
     bool Attach(const std::string& processName, MemoryMode mode = MemoryMode::Standard);
     void Detach();
@@ -102,7 +116,16 @@ public:
     uintptr_t GetModuleBase(const std::string& moduleName) const;
     ModuleInfo GetModuleInfo(const std::string& moduleName) const;
 
+    /**
+     * @brief Reads memory from the target process.
+     * خواندن حافظه از پردازش هدف.
+     */
     bool ReadMemory(uintptr_t address, void* buffer, size_t size, bool modifyProtection = false) const;
+
+    /**
+     * @brief Writes memory to the target process.
+     * نوشتن در حافظه پردازش هدف.
+     */
     bool WriteMemory(uintptr_t address, const void* buffer, size_t size) const;
 
     template<typename T>

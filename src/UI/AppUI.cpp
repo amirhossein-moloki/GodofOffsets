@@ -812,13 +812,36 @@ void AppUI::RenderDumperTab() {
         ImGui::PopItemWidth();
     }
 
+    const char* formats[] = { "JSON", "CSV", "Text" };
+    ImGui::PushItemWidth(150);
+    ImGui::Combo("Export Format", &m_exportFormat, formats, IM_ARRAYSIZE(formats));
+    ImGui::PopItemWidth();
+
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Dump Structure", ImVec2(200, 35))) {
         Core::StructDefinition def = { m_structName, m_structFields, m_structSize };
         m_dumpedResults = m_dumper.DumpStructure(m_structBase, def, m_structCount);
-        m_dumper.SaveToJSON(std::string(m_structName) + ".json", m_dumpedResults);
-        m_status = "Dumped to " + std::string(m_structName) + ".json";
-        AddLog("Structure '" + std::string(m_structName) + "' dumped to JSON.", LogSeverity::Success);
+
+        std::string filename = std::string(m_structName);
+        bool success = false;
+        if (m_exportFormat == 0) {
+            filename += ".json";
+            success = m_dumper.SaveToJSON(filename, m_dumpedResults);
+        } else if (m_exportFormat == 1) {
+            filename += ".csv";
+            success = m_dumper.SaveToCSV(filename, m_dumpedResults);
+        } else {
+            filename += ".txt";
+            success = m_dumper.SaveToText(filename, m_processName, m_pm.GetPid(), m_dumpedResults);
+        }
+
+        if (success) {
+            m_status = "Dumped to " + filename;
+            AddLog("Structure '" + std::string(m_structName) + "' dumped to " + formats[m_exportFormat] + ".", LogSeverity::Success);
+        } else {
+            m_status = "Failed to dump to " + filename;
+            AddLog("Failed to dump structure to " + filename, LogSeverity::Error);
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("Load JSON", ImVec2(120, 35))) {
@@ -1017,11 +1040,43 @@ void AppUI::RenderHexViewerTab() {
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {
+                    uintptr_t currentByteAddr = m_hexBase + i * 16 + j;
                     uint8_t b = buffer[i * 16 + j];
+
+                    ImGui::PushID((int)(i * 16 + j));
                     if (b == 0) ImGui::TextDisabled("00 ");
                     else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
                     else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
                     else ImGui::Text("%02X ", b);
+
+                    if (ImGui::BeginPopupContextItem("##byte_context")) {
+                        static char editBuf[4] = "";
+                        static uintptr_t editingAddr = 0;
+
+                        if (editingAddr != currentByteAddr) {
+                            snprintf(editBuf, sizeof(editBuf), "%02X", b);
+                            editingAddr = currentByteAddr;
+                        }
+
+                        ImGui::Text("Edit Byte at 0x%llX", (unsigned long long)currentByteAddr);
+                        if (ImGui::InputText("Value (Hex)", editBuf, sizeof(editBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            try {
+                                uint8_t newVal = (uint8_t)std::stoul(editBuf, nullptr, 16);
+                                if (m_pm.WriteMemory(currentByteAddr, &newVal, 1)) {
+                                    AddLog("Memory written at " + Utils::ToHex(currentByteAddr), LogSeverity::Success);
+                                } else {
+                                    AddLog("Failed to write memory at " + Utils::ToHex(currentByteAddr), LogSeverity::Error);
+                                }
+                            } catch (...) {
+                                AddLog("Invalid hex value entered: " + std::string(editBuf), LogSeverity::Error);
+                            }
+                            ImGui::CloseCurrentPopup();
+                            editingAddr = 0; // Reset for next interaction
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    ImGui::PopID();
                     ImGui::SameLine();
                 }
 
