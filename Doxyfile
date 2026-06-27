@@ -1,0 +1,11 @@
+PROJECT_NAME           = "Universal Offset Dumper"
+OUTPUT_DIRECTORY       = docs
+INPUT                  = include src
+RECURSIVE              = YES
+GENERATE_LATEX         = NO
+GENERATE_HTML          = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+FILE_PATTERNS          = *.h *.cpp *.c
+USE_MDFILE_AS_MAINPAGE = README.md
