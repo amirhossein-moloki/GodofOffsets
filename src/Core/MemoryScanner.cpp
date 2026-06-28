@@ -431,59 +431,70 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
             continue;
         }
 
-        if (mask[0]) {
-            uint8_t firstByte = bytes[0];
+        // Optimization: Find the first non-wildcard byte for SIMD acceleration
+        int firstRealByteIdx = 0;
+        while (firstRealByteIdx < (int)bytes.size() && !mask[firstRealByteIdx]) firstRealByteIdx++;
 
-            // Try AVX2 if possible
+        // Find the last non-wildcard byte for BMH skip logic
+        int lastRealByteIdx = (int)bytes.size() - 1;
+        while (lastRealByteIdx >= 0 && !mask[lastRealByteIdx]) lastRealByteIdx--;
+
+        if (firstRealByteIdx < (int)bytes.size()) {
+            uint8_t firstByte = bytes[firstRealByteIdx];
             bool hasAVX2 = SupportsAVX2();
             bool hasSSE42 = SupportsSSE42();
-
             size_t i = 0;
+
+            // SIMD Accelerated Path (if a non-wildcard byte exists)
             if (hasAVX2 && toRead >= 32) {
-                __m256i firstByteVec256 = _mm256_set1_epi8(firstByte);
-                for (; i <= toRead - 32; i += 32) {
+                __m256i targetVec = _mm256_set1_epi8(firstByte);
+                for (; i <= (toRead >= 32 ? toRead - 32 : 0); i += 32) {
                     __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
-                    __m256i cmp = _mm256_cmpeq_epi8(data, firstByteVec256);
+                    __m256i cmp = _mm256_cmpeq_epi8(data, targetVec);
                     uint32_t bitmask = (uint32_t)_mm256_movemask_epi8(cmp);
 
                     while (bitmask != 0) {
                         int pos = std::countr_zero(bitmask);
-                        if (i + pos <= toRead - bytes.size()) {
+                        int matchStart = (int)i + pos - firstRealByteIdx;
+
+                        if (matchStart >= 0 && matchStart <= (int)toRead - (int)bytes.size()) {
                             bool found = true;
-                            for (size_t k = 1; k < bytes.size(); ++k) {
-                                if (mask[k] && buffer[i + pos + k] != bytes[k]) {
+                            for (size_t k = 0; k < bytes.size(); ++k) {
+                                if (mask[k] && buffer[matchStart + k] != bytes[k]) {
                                     found = false;
                                     break;
                                 }
                             }
                             if (found) {
-                                results.push_back(region.baseAddress + offset + i + pos);
-                                values.insert(values.end(), buffer.data() + i + pos, buffer.data() + i + pos + bytes.size());
+                                results.push_back(region.baseAddress + offset + matchStart);
+                                values.insert(values.end(), buffer.data() + matchStart, buffer.data() + matchStart + bytes.size());
                             }
                         }
                         bitmask &= ~(1 << pos);
                     }
                 }
             } else if (hasSSE42 && toRead >= 16) {
-                __m128i firstByteVec128 = _mm_set1_epi8(firstByte);
-                for (; i <= toRead - 16; i += 16) {
+                __m128i targetVec = _mm_set1_epi8(firstByte);
+                for (; i <= (toRead >= 16 ? toRead - 16 : 0); i += 16) {
                     __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
-                    __m128i cmp = _mm_cmpeq_epi8(data, firstByteVec128);
+                    __m128i cmp = _mm_cmpeq_epi8(data, targetVec);
                     uint32_t bitmask = (uint32_t)_mm_movemask_epi8(cmp);
 
                     while (bitmask != 0) {
                         int pos = std::countr_zero(bitmask);
-                        if (i + pos <= toRead - bytes.size()) {
+                        int matchStart = (int)i + pos - firstRealByteIdx;
+
+                        if (matchStart >= 0 && matchStart <= (int)toRead - (int)bytes.size()) {
                             bool found = true;
-                            for (size_t k = 1; k < bytes.size(); ++k) {
-                                if (mask[k] && buffer[i + pos + k] != bytes[k]) {
+                            for (size_t k = 0; k < bytes.size(); ++k) {
+                                if (mask[k] && buffer[matchStart + k] != bytes[k]) {
                                     found = false;
                                     break;
                                 }
                             }
                             if (found) {
-                                results.push_back(region.baseAddress + offset + i + pos);
-                                values.insert(values.end(), buffer.data() + i + pos, buffer.data() + i + pos + bytes.size());
+                                results.push_back(region.baseAddress + offset + matchStart);
+                                values.insert(values.end(), buffer.data() + matchStart, buffer.data() + matchStart + bytes.size());
                             }
                         }
                         bitmask &= ~(1 << pos);
@@ -491,22 +502,18 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
                 }
             }
 
-            // Fallback: Boyer-Moore-Horspool inspired search for non-SIMD or remaining bytes
-            size_t badCharTable[256];
-
-            // Find the last non-wildcard byte
-            int lastRealByteIdx = (int)bytes.size() - 1;
-            while (lastRealByteIdx >= 0 && !mask[lastRealByteIdx]) lastRealByteIdx--;
-
+            // Boyer-Moore-Horspool Fallback for remaining bytes or non-SIMD
             if (lastRealByteIdx >= 0) {
+                size_t badCharTable[256];
                 size_t skipValue = (size_t)lastRealByteIdx + 1;
                 for (int k = 0; k < 256; ++k) badCharTable[k] = skipValue;
                 for (int k = 0; k < lastRealByteIdx; ++k) {
                     if (mask[k]) badCharTable[bytes[k]] = (size_t)lastRealByteIdx - k;
                 }
 
-                for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ) {
+                while (i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0)) {
                     bool found = true;
+                    // Check fixed bytes from end to start (BMH style)
                     for (int k = lastRealByteIdx; k >= 0; --k) {
                         if (mask[k] && buffer[i + k] != bytes[k]) {
                             found = false;
@@ -515,7 +522,7 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
                     }
 
                     if (found) {
-                        // Double check the rest of the pattern if there were trailing wildcards
+                        // Double check trailing wildcards if any
                         for (size_t k = (size_t)lastRealByteIdx + 1; k < bytes.size(); ++k) {
                             if (mask[k] && buffer[i + k] != bytes[k]) {
                                 found = false;
@@ -532,27 +539,12 @@ void MemoryScanner::AOBScan(const RegionInfo& region, const std::string& pattern
                         i += badCharTable[buffer[i + lastRealByteIdx]];
                     }
                 }
-            } else {
-                // All wildcards or empty pattern
-                for (; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
-                    results.push_back(region.baseAddress + offset + i);
-                    values.insert(values.end(), buffer.data() + i, buffer.data() + i + bytes.size());
-                }
             }
         } else {
-            // If the first byte is a wildcard, we can't use BMH effectively
+            // Entirely wildcards pattern
             for (size_t i = 0; i <= (toRead >= bytes.size() ? toRead - bytes.size() : 0); ++i) {
-                bool found = true;
-                for (size_t k = 0; k < bytes.size(); ++k) {
-                    if (mask[k] && buffer[i + k] != bytes[k]) {
-                        found = false;
-                        break;
-                    }
-                }
-                if (found) {
-                    results.push_back(region.baseAddress + offset + i);
-                    values.insert(values.end(), buffer.data() + i, buffer.data() + i + bytes.size());
-                }
+                results.push_back(region.baseAddress + offset + i);
+                values.insert(values.end(), buffer.data() + i, buffer.data() + i + bytes.size());
             }
         }
         if (toRead < bufferSize) break;

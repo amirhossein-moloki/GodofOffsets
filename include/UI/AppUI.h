@@ -96,6 +96,13 @@ private:
     int m_historyIndex = -1;
 
     bool m_showDisclaimer = true;
+    bool m_showProcessWindow = true;
+    bool m_showScannerWindow = true;
+    bool m_showSignatureWindow = true;
+    bool m_showPointerWindow = true;
+    bool m_showDumperWindow = true;
+    bool m_showHexWindow = true;
+    bool m_showLogWindow = true;
 
     // Activity Log
     std::deque<LogEntry> m_activityLog;
