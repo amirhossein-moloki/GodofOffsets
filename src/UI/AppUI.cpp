@@ -76,62 +76,86 @@ void AppUI::Render() {
     // Handle Global Keyboard Shortcuts
     auto& io = ImGui::GetIO();
     if (io.KeyAlt) {
-        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_activeTab = TabID::Process;
-        if (ImGui::IsKeyPressed(ImGuiKey_M) && m_isAttached) m_activeTab = TabID::MemoryScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && m_isAttached) m_activeTab = TabID::SignatureScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_T) && m_isAttached) m_activeTab = TabID::PointerScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_D) && m_isAttached) m_activeTab = TabID::Dumper;
-        if (ImGui::IsKeyPressed(ImGuiKey_H) && m_isAttached) m_activeTab = TabID::HexViewer;
-        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
+        if (ImGui::IsKeyPressed(ImGuiKey_P)) { m_showProcessWindow = true; m_activeTab = TabID::Process; }
+        if (ImGui::IsKeyPressed(ImGuiKey_M)) { m_showScannerWindow = true; m_activeTab = TabID::MemoryScanner; }
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) { m_showSignatureWindow = true; m_activeTab = TabID::SignatureScanner; }
+        if (ImGui::IsKeyPressed(ImGuiKey_T)) { m_showPointerWindow = true; m_activeTab = TabID::PointerScanner; }
+        if (ImGui::IsKeyPressed(ImGuiKey_D)) { m_showDumperWindow = true; m_activeTab = TabID::Dumper; }
+        if (ImGui::IsKeyPressed(ImGuiKey_H)) { m_showHexWindow = true; m_activeTab = TabID::HexViewer; }
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) { m_showLogWindow = true; m_activeTab = TabID::ActivityLog; }
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    // Create DockSpace
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+    window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+
+    ImGui::Begin("DockSpace Demo", nullptr, window_flags);
+    ImGui::PopStyleVar(2);
+
+    ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+    if (ImGui::BeginMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Exit", "Alt+F4")) { /* Handle exit */ }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Windows")) {
+            ImGui::MenuItem("Process List", "Alt+P", &m_showProcessWindow);
+            ImGui::MenuItem("Memory Scanner", "Alt+M", &m_showScannerWindow);
+            ImGui::MenuItem("Signature Scanner", "Alt+S", &m_showSignatureWindow);
+            ImGui::MenuItem("Pointer Scan", "Alt+T", &m_showPointerWindow);
+            ImGui::MenuItem("Structure Dumper", "Alt+D", &m_showDumperWindow);
+            ImGui::MenuItem("Hex Viewer", "Alt+H", &m_showHexWindow);
+            ImGui::MenuItem("Activity Log", "Alt+G", &m_showLogWindow);
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenuBar();
+    }
 
     RenderHeader();
-    ImGui::Separator();
+    ImGui::End();
 
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
+    // Render Windows
+    if (m_showProcessWindow) {
+        ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Process List", &m_showProcessWindow)) {
             RenderProcessTab();
-            ImGui::EndTabItem();
-            m_activeTab = TabID::None;
         }
-
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
-
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
+        ImGui::End();
     }
 
-    ImGui::End();
+    auto RenderWindow = [&](const char* name, bool* open, TabID id, auto func) {
+        if (*open) {
+            ImGui::SetNextWindowDockID(dockspace_id, ImGuiCond_FirstUseEver);
+            if (m_activeTab == id) {
+                ImGui::SetNextWindowFocus();
+                m_activeTab = TabID::None;
+            }
+            if (ImGui::Begin(name, open)) {
+                if (!m_isAttached && id != TabID::ActivityLog) {
+                    RenderEmptyState("Attachment required.", "Please select a process in the Process List window.");
+                } else {
+                    func();
+                }
+            }
+            ImGui::End();
+        }
+    };
+
+    RenderWindow("Memory Scanner", &m_showScannerWindow, TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
+    RenderWindow("Signature Scanner", &m_showSignatureWindow, TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
+    RenderWindow("Pointer Scan", &m_showPointerWindow, TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
+    RenderWindow("Structure Dumper", &m_showDumperWindow, TabID::Dumper, [&]() { RenderDumperTab(); });
+    RenderWindow("Hex Viewer", &m_showHexWindow, TabID::HexViewer, [&]() { RenderHexViewerTab(); });
+    RenderWindow("Activity Log", &m_showLogWindow, TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
 }
 
 void AppUI::RenderHeader() {
@@ -301,8 +325,8 @@ void AppUI::RenderProcessTab() {
                             JumpToHex(mod.baseAddress);
                         }
                         if (ImGui::MenuItem("Copy Base Address")) {
-                            char buf[32]; sprintf(buf, "0x%llX", (unsigned long long)mod.baseAddress);
-                            ImGui::SetClipboardText(buf);
+                            std::string addrStr = Utils::ToHex(mod.baseAddress);
+                            ImGui::SetClipboardText(addrStr.c_str());
                         }
                         ImGui::EndPopup();
                     }
@@ -432,20 +456,20 @@ void AppUI::RenderMemoryScannerTab() {
                     typeSize = snapshotValues.size() / results.size();
                 }
 
-                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr) {
+                auto FormatValue = [&](const uint8_t* ptr, size_t size, char* outStr, size_t outSize) {
                     switch (m_selectedDataType) {
-                        case Core::DataType::Int8:   sprintf(outStr, "%d", *(int8_t*)ptr); break;
-                        case Core::DataType::Uint8:  sprintf(outStr, "%u", *(uint8_t*)ptr); break;
-                        case Core::DataType::Int16:  sprintf(outStr, "%d", *(int16_t*)ptr); break;
-                        case Core::DataType::Uint16: sprintf(outStr, "%u", *(uint16_t*)ptr); break;
-                        case Core::DataType::Int32:  sprintf(outStr, "%d", *(int32_t*)ptr); break;
-                        case Core::DataType::Uint32: sprintf(outStr, "%u", *(uint32_t*)ptr); break;
-                        case Core::DataType::Int64:  sprintf(outStr, "%lld", *(int64_t*)ptr); break;
-                        case Core::DataType::Uint64: sprintf(outStr, "%llu", *(uint64_t*)ptr); break;
-                        case Core::DataType::Float:  sprintf(outStr, "%.4f", *(float*)ptr); break;
-                        case Core::DataType::Double: sprintf(outStr, "%.8f", *(double*)ptr); break;
+                        case Core::DataType::Int8:   snprintf(outStr, outSize, "%d", *(int8_t*)ptr); break;
+                        case Core::DataType::Uint8:  snprintf(outStr, outSize, "%u", *(uint8_t*)ptr); break;
+                        case Core::DataType::Int16:  snprintf(outStr, outSize, "%d", *(int16_t*)ptr); break;
+                        case Core::DataType::Uint16: snprintf(outStr, outSize, "%u", *(uint16_t*)ptr); break;
+                        case Core::DataType::Int32:  snprintf(outStr, outSize, "%d", *(int32_t*)ptr); break;
+                        case Core::DataType::Uint32: snprintf(outStr, outSize, "%u", *(uint32_t*)ptr); break;
+                        case Core::DataType::Int64:  snprintf(outStr, outSize, "%lld", *(int64_t*)ptr); break;
+                        case Core::DataType::Uint64: snprintf(outStr, outSize, "%llu", *(uint64_t*)ptr); break;
+                        case Core::DataType::Float:  snprintf(outStr, outSize, "%.4f", *(float*)ptr); break;
+                        case Core::DataType::Double: snprintf(outStr, outSize, "%.8f", *(double*)ptr); break;
                         case Core::DataType::String: {
-                            size_t len = (std::min)(size, (size_t)63);
+                            size_t len = (std::min)(size, (size_t)outSize - 1);
                             memcpy(outStr, ptr, len);
                             outStr[len] = '\0';
                             break;
@@ -453,10 +477,10 @@ void AppUI::RenderMemoryScannerTab() {
                         case Core::DataType::AOB: {
                             outStr[0] = '\0';
                             for (size_t k = 0; k < (std::min)(size, (size_t)16); ++k) {
-                                char b[4]; sprintf(b, "%02X ", ptr[k]);
-                                strcat(outStr, b);
+                                char b[4]; snprintf(b, sizeof(b), "%02X ", ptr[k]);
+                                strncat(outStr, b, outSize - strlen(outStr) - 1);
                             }
-                            if (size > 16) strcat(outStr, "...");
+                            if (size > 16) strncat(outStr, "...", outSize - strlen(outStr) - 1);
                             break;
                         }
                     }
@@ -488,7 +512,7 @@ void AppUI::RenderMemoryScannerTab() {
                         ImGui::TableSetColumnIndex(1);
                         if (i * typeSize < snapshotValues.size()) {
                             char valStr[128];
-                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr);
+                            FormatValue(&snapshotValues[i * typeSize], typeSize, valStr, sizeof(valStr));
                             ImGui::TextDisabled("%s", valStr);
                         }
 
@@ -497,7 +521,7 @@ void AppUI::RenderMemoryScannerTab() {
                         std::vector<uint8_t> liveBuf(typeSize);
                         if (m_pm.ReadMemory(results[i], liveBuf.data(), typeSize)) {
                             char liveStr[128];
-                            FormatValue(liveBuf.data(), typeSize, liveStr);
+                            FormatValue(liveBuf.data(), typeSize, liveStr, sizeof(liveStr));
 
                             // Highlight if changed
                             bool changed = false;
@@ -716,8 +740,8 @@ void AppUI::RenderPointerScanTab() {
             for (auto& modPair : m_groupedPtrResults) {
                 if (ImGui::TreeNodeEx(modPair.first.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
                     for (auto& basePair : modPair.second) {
-                        char baseLabel[64];
-                        sprintf(baseLabel, "Base Offset: 0x%llX (%zu chains)", (unsigned long long)basePair.first, basePair.second.size());
+                        char baseLabel[128];
+                        snprintf(baseLabel, sizeof(baseLabel), "Base Offset: %s (%zu chains)", Utils::ToHex(basePair.first).c_str(), basePair.second.size());
                         if (ImGui::TreeNode(baseLabel)) {
                             for (const auto& chain : basePair.second) {
                                 std::stringstream ss;
@@ -787,10 +811,10 @@ void AppUI::RenderDumperTab() {
     }
 
     for (size_t i = 0; i < m_structFields.size(); ++i) {
-        char nameId[32]; sprintf(nameId, "Name##%zu", i);
-        char offId[32]; sprintf(offId, "Off##%zu", i);
-        char typeId[32]; sprintf(typeId, "Type##%zu", i);
-        char removeId[32]; sprintf(removeId, "X##%zu", i);
+        char nameId[32]; snprintf(nameId, sizeof(nameId), "Name##%zu", i);
+        char offId[32]; snprintf(offId, sizeof(offId), "Off##%zu", i);
+        char typeId[32]; snprintf(typeId, sizeof(typeId), "Type##%zu", i);
+        char removeId[32]; snprintf(removeId, sizeof(removeId), "X##%zu", i);
 
         ImGui::PushItemWidth(100);
         char fieldName[64];
@@ -927,7 +951,7 @@ void AppUI::JumpToHex(uintptr_t addr) {
     m_hexBase = addr;
     AddLog("Jumping to address: " + Utils::ToHex(addr) + " in Hex Viewer", LogSeverity::Info);
 
-    sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+    snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
 
     // Add to history
     if (m_historyIndex == -1 || m_hexHistory[m_historyIndex] != addr) {
@@ -950,7 +974,7 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::Button("<", ImVec2(30, 0)) && m_historyIndex > 0) {
         m_historyIndex--;
         m_hexBase = m_hexHistory[m_historyIndex];
-        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+        snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go Back");
 
@@ -958,7 +982,7 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::Button(">", ImVec2(30, 0)) && m_historyIndex < (int)m_hexHistory.size() - 1) {
         m_historyIndex++;
         m_hexBase = m_hexHistory[m_historyIndex];
-        sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+        snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go Forward");
     ImGui::EndGroup();
@@ -1013,15 +1037,39 @@ void AppUI::RenderHexViewerTab() {
         uint8_t buffer[rows * 16];
         if (m_pm.ReadMemory(m_hexBase, buffer, sizeof(buffer))) {
             for (int i = 0; i < rows; ++i) {
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)(m_hexBase + i * 16));
+                uintptr_t rowAddr = m_hexBase + i * 16;
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)rowAddr);
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {
                     uint8_t b = buffer[i * 16 + j];
-                    if (b == 0) ImGui::TextDisabled("00 ");
-                    else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
-                    else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
-                    else ImGui::Text("%02X ", b);
+                    char byteStr[4]; snprintf(byteStr, sizeof(byteStr), "%02X ", b);
+
+                    if (b == 0) ImGui::TextDisabled("%s", byteStr);
+                    else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", byteStr);
+                    else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", byteStr);
+                    else ImGui::Text("%s", byteStr);
+
+                    if (ImGui::BeginPopupContextItem()) {
+                        static char writeBuf[4] = "";
+                        uintptr_t targetAddr = rowAddr + j;
+                        ImGui::Text("Write to 0x%llX", (unsigned long long)targetAddr);
+                        if (writeBuf[0] == '\0') snprintf(writeBuf, sizeof(writeBuf), "%02X", b);
+                        ImGui::InputText("##hexwrite", writeBuf, sizeof(writeBuf), ImGuiInputTextFlags_CharsHexadecimal);
+                        if (ImGui::Button("Write")) {
+                            try {
+                                uint8_t newVal = (uint8_t)std::stoul(writeBuf, nullptr, 16);
+                                if (m_pm.WriteMemory(targetAddr, &newVal, 1)) {
+                                    AddLog("Wrote 0x" + std::string(writeBuf) + " to 0x" + Utils::ToHex(targetAddr), LogSeverity::Success);
+                                } else {
+                                    AddLog("Failed to write memory at 0x" + Utils::ToHex(targetAddr), LogSeverity::Error);
+                                }
+                            } catch (...) {}
+                            ImGui::CloseCurrentPopup();
+                            writeBuf[0] = '\0';
+                        }
+                        ImGui::EndPopup();
+                    }
                     ImGui::SameLine();
                 }
 
