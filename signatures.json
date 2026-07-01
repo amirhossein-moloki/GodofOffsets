@@ -1,52 +1,20 @@
 {
     "signatures": [
         {
-            "name": "GameManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
+            "name": "LocalPlayer",
+            "pattern": "48 8B 05 ? ? ? ?",
+            "module": "winmine.exe",
             "offset": 0,
             "relative": true,
-            "description": "Main GameManager pointer (RIP-relative)"
+            "description": "Example signature for Minesweeper"
         },
         {
-            "name": "EntityList",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 90 ? ? ? ? 48 8B D8",
-            "module": "RainbowSix.exe",
+            "name": "TimerValue",
+            "pattern": "A1 ? ? ? ?",
+            "module": "winmine.exe",
             "offset": 0,
             "relative": true,
-            "description": "Global Entity List pointer"
-        },
-        {
-            "name": "NetworkManager",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B D7 FF 50 30",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "NetworkManager for player info"
-        },
-        {
-            "name": "RenderView",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 50 18 48 8B C8",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "RenderView for FOV/Camera"
-        },
-        {
-            "name": "ProfileManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 70 48 85 C9 74 0F",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "ProfileManager for local player"
-        },
-        {
-            "name": "RoundManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 18 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "Round states and timers"
+            "description": "Example 32-bit signature"
         }
     ]
 }

@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdint>
+#include <algorithm>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -35,6 +36,26 @@ inline std::string ToUTF16LE(const std::string& utf8) {
 #else
     return utf8; // Not implemented for non-Windows
 #endif
+}
+
+inline std::string SanitizeIdentifier(const std::string& input) {
+    if (input.empty()) return "var_unknown";
+
+    std::string result = input;
+
+    // Replace non-alphanumeric with underscores
+    for (char& c : result) {
+        if (!isalnum((unsigned char)c)) {
+            c = '_';
+        }
+    }
+
+    // Ensure it doesn't start with a digit
+    if (isdigit((unsigned char)result[0])) {
+        result = "_" + result;
+    }
+
+    return result;
 }
 
 } // namespace Utils
