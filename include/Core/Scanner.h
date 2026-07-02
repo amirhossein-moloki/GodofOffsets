@@ -27,7 +27,7 @@ public:
 
     uintptr_t FindPattern(const std::string& moduleName, const std::string& pattern);
     std::vector<Signature> LoadSignatures(const std::string& filename);
-    void Run(std::vector<Signature>& sigs, bool isVulkan = false);
+    void Run(std::vector<Signature>& sigs);
 
 protected:
     const ProcessManager& m_pm;
