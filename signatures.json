@@ -47,6 +47,22 @@
             "offset": 0,
             "relative": true,
             "description": "Round states and timers"
+        },
+        {
+            "name": "MinesweeperTimer",
+            "pattern": "A1 ? ? ? ? FF 05 ? ? ? ? E8",
+            "module": "winmine.exe",
+            "offset": 1,
+            "relative": false,
+            "description": "Timer address in classic Minesweeper"
+        },
+        {
+            "name": "MinesweeperBoard",
+            "pattern": "8B 15 ? ? ? ? 8D 04 42 8B 04 85",
+            "module": "winmine.exe",
+            "offset": 2,
+            "relative": false,
+            "description": "Board base address in classic Minesweeper"
         }
     ]
 }

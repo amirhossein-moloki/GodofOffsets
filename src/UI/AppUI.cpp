@@ -76,62 +76,48 @@ void AppUI::Render() {
     // Handle Global Keyboard Shortcuts
     auto& io = ImGui::GetIO();
     if (io.KeyAlt) {
-        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_activeTab = TabID::Process;
-        if (ImGui::IsKeyPressed(ImGuiKey_M) && m_isAttached) m_activeTab = TabID::MemoryScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && m_isAttached) m_activeTab = TabID::SignatureScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_T) && m_isAttached) m_activeTab = TabID::PointerScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_D) && m_isAttached) m_activeTab = TabID::Dumper;
-        if (ImGui::IsKeyPressed(ImGuiKey_H) && m_isAttached) m_activeTab = TabID::HexViewer;
-        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
+        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_showProcessWindow = !m_showProcessWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_M)) m_showScannerWindow = !m_showScannerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) m_showSignatureWindow = !m_showSignatureWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_T)) m_showPointerWindow = !m_showPointerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_D)) m_showDumperWindow = !m_showDumperWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_H)) m_showHexWindow = !m_showHexWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_showLogWindow = !m_showLogWindow;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    // Initialize Docking Workspace
+    ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
+    // Main Header and Controls
+    ImGui::Begin("Dashboard & Status", nullptr, ImGuiWindowFlags_NoCollapse);
     RenderHeader();
-    ImGui::Separator();
-
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
-            m_activeTab = TabID::None;
-        }
-
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
-
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
-    }
-
     ImGui::End();
+
+    auto RenderWindow = [&](const char* title, bool* p_open, TabID index, auto func) {
+        if (*p_open) {
+            bool attached = m_isAttached;
+            if (!attached && index != TabID::Process && index != TabID::ActivityLog) {
+                if (ImGui::Begin(title, p_open)) {
+                    RenderEmptyState("Attachment required to access this module.", "Go to the Process List and attach to a target first.");
+                }
+                ImGui::End();
+                return;
+            }
+
+            if (ImGui::Begin(title, p_open)) {
+                func();
+            }
+            ImGui::End();
+        }
+    };
+
+    RenderWindow("[P] Process List", &m_showProcessWindow, TabID::Process, [&]() { RenderProcessTab(); });
+    RenderWindow("[M] Memory Scanner", &m_showScannerWindow, TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
+    RenderWindow("[S] Signature Scanner", &m_showSignatureWindow, TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
+    RenderWindow("[T] Pointer Scan", &m_showPointerWindow, TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
+    RenderWindow("[D] Structure Dumper", &m_showDumperWindow, TabID::Dumper, [&]() { RenderDumperTab(); });
+    RenderWindow("[H] Hex Viewer", &m_showHexWindow, TabID::HexViewer, [&]() { RenderHexViewerTab(); });
+    RenderWindow("[G] Activity Log", &m_showLogWindow, TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
 }
 
 void AppUI::RenderHeader() {
@@ -941,7 +927,8 @@ void AppUI::JumpToHex(uintptr_t addr) {
         m_historyIndex = (int)m_hexHistory.size() - 1;
     }
 
-    m_activeTab = TabID::HexViewer;
+    m_showHexWindow = true;
+    ImGui::SetWindowFocus("[H] Hex Viewer");
 }
 
 void AppUI::RenderHexViewerTab() {
@@ -1018,10 +1005,35 @@ void AppUI::RenderHexViewerTab() {
 
                 for (int j = 0; j < 16; ++j) {
                     uint8_t b = buffer[i * 16 + j];
-                    if (b == 0) ImGui::TextDisabled("00 ");
-                    else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
-                    else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
-                    else ImGui::Text("%02X ", b);
+                    char byteLabel[4];
+                    sprintf(byteLabel, "%02X ", b);
+
+                    if (b == 0) ImGui::TextDisabled("%s", byteLabel);
+                    else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", byteLabel);
+                    else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", byteLabel);
+                    else ImGui::Text("%s", byteLabel);
+
+                    if (ImGui::BeginPopupContextItem()) {
+                        uintptr_t currentByteAddr = m_hexBase + i * 16 + j;
+                        ImGui::Text("Edit Byte at 0x%llX", (unsigned long long)currentByteAddr);
+                        static char editBuf[4] = "";
+                        if (ImGui::IsWindowAppearing()) sprintf(editBuf, "%02X", b);
+
+                        ImGui::SetNextItemWidth(50);
+                        if (ImGui::InputText("##editByte", editBuf, sizeof(editBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            try {
+                                uint8_t newVal = (uint8_t)std::stoul(editBuf, nullptr, 16);
+                                if (m_pm.WriteMemory(currentByteAddr, &newVal, 1)) {
+                                    AddLog("Memory written: " + Utils::ToHex(currentByteAddr) + " = " + editBuf, LogSeverity::Success);
+                                } else {
+                                    AddLog("Failed to write memory at " + Utils::ToHex(currentByteAddr), LogSeverity::Error);
+                                }
+                            } catch(...) {}
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+
                     ImGui::SameLine();
                 }
 
