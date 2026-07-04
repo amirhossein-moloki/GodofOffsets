@@ -276,10 +276,21 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
         size_t scanLimit = (toRead >= typeSize) ? (toRead - typeSize) : 0;
         size_t i = 0;
 
+        uint32_t target32 = 0;
+        uint64_t target64 = 0;
+        if (useSIMD) {
+            std::visit([&](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_arithmetic_v<T>) {
+                    if constexpr (sizeof(T) == 4) target32 = std::bit_cast<uint32_t>(arg);
+                    else if constexpr (sizeof(T) == 8) target64 = std::bit_cast<uint64_t>(arg);
+                }
+            }, val.value);
+        }
+
         if (hasAVX2 && toRead >= 32) {
             if (typeSize == 4) {
-                uint32_t target = std::get<uint32_t>(val.value);
-                __m256i targetVec = _mm256_set1_epi32(target);
+                __m256i targetVec = _mm256_set1_epi32(target32);
                 for (; i <= toRead - 32; i += 32) {
                     __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
                     __m256i cmp = _mm256_cmpeq_epi32(data, targetVec);
@@ -292,8 +303,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
                     }
                 }
             } else if (typeSize == 8) {
-                uint64_t target = std::get<uint64_t>(val.value);
-                __m256i targetVec = _mm256_set1_epi64x(target);
+                __m256i targetVec = _mm256_set1_epi64x(target64);
                 for (; i <= toRead - 32; i += 32) {
                     __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
                     __m256i cmp = _mm256_cmpeq_epi64(data, targetVec);
@@ -308,8 +318,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
             }
         } else if (hasSSE42 && toRead >= 16) {
             if (typeSize == 4) {
-                uint32_t target = std::get<uint32_t>(val.value);
-                __m128i targetVec = _mm_set1_epi32(target);
+                __m128i targetVec = _mm_set1_epi32(target32);
                 for (; i <= toRead - 16; i += 16) {
                     __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
                     __m128i cmp = _mm_cmpeq_epi32(data, targetVec);
@@ -322,8 +331,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
                     }
                 }
             } else if (typeSize == 8) {
-                uint64_t target = std::get<uint64_t>(val.value);
-                __m128i targetVec = _mm_set1_epi64x(target);
+                __m128i targetVec = _mm_set1_epi64x(target64);
                 for (; i <= toRead - 16; i += 16) {
                     __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
                     __m128i cmp = _mm_cmpeq_epi64(data, targetVec);

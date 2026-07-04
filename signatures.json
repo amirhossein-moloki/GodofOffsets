@@ -1,52 +1,28 @@
 {
     "signatures": [
         {
-            "name": "GameManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
+            "name": "BaseAddress",
+            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08",
+            "module": "winmine.exe",
             "offset": 0,
             "relative": true,
-            "description": "Main GameManager pointer (RIP-relative)"
+            "description": "Example absolute pattern with RIP-relative offset"
         },
         {
-            "name": "EntityList",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 90 ? ? ? ? 48 8B D8",
-            "module": "RainbowSix.exe",
+            "name": "LocalPlayer",
+            "pattern": "E8 ? ? ? ? 48 8B 0D ? ? ? ? 48 8B D7",
+            "module": "winmine.exe",
             "offset": 0,
             "relative": true,
-            "description": "Global Entity List pointer"
+            "description": "Example relative pattern"
         },
         {
-            "name": "NetworkManager",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B D7 FF 50 30",
-            "module": "RainbowSix.exe",
+            "name": "StaticValue",
+            "pattern": "C7 05 ? ? ? ? 01 00 00 00",
+            "module": "winmine.exe",
             "offset": 0,
-            "relative": true,
-            "description": "NetworkManager for player info"
-        },
-        {
-            "name": "RenderView",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 50 18 48 8B C8",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "RenderView for FOV/Camera"
-        },
-        {
-            "name": "ProfileManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 70 48 85 C9 74 0F",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "ProfileManager for local player"
-        },
-        {
-            "name": "RoundManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 18 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "Round states and timers"
+            "relative": false,
+            "description": "Example static absolute address scan"
         }
     ]
 }

@@ -50,7 +50,7 @@ private:
 
     std::vector<Core::Signature> m_sigs;
 
-    char m_processName[64] = "RainbowSix.exe";
+    char m_processName[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
     ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
@@ -77,7 +77,7 @@ private:
 
     // Structure Dump UI
     uintptr_t m_structBase = 0;
-    char m_structName[64] = "MyStruct";
+    char m_structName[64] = "";
     int m_structCount = 1;
     size_t m_structSize = 0;
     std::vector<Core::StructField> m_structFields;
@@ -96,6 +96,13 @@ private:
     int m_historyIndex = -1;
 
     bool m_showDisclaimer = true;
+    bool m_showProcessWindow = true;
+    bool m_showScannerWindow = true;
+    bool m_showSigScannerWindow = true;
+    bool m_showPointerScannerWindow = true;
+    bool m_showDumperWindow = true;
+    bool m_showHexViewerWindow = true;
+    bool m_showLogWindow = true;
 
     // Activity Log
     std::deque<LogEntry> m_activityLog;
@@ -106,6 +113,7 @@ private:
     ImVec4 m_accentColor = ImVec4(0.3f, 0.6f, 0.9f, 1.0f);
 
     void RenderHeader();
+    void RenderWindow(const char* title, bool* p_open, std::function<void()> func, TabID id);
     void RenderProcessTab();
     void RenderSignatureTab();
     void RenderMemoryScannerTab();
