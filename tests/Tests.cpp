@@ -43,8 +43,41 @@ void test_history() {
     std::cout << "History mechanism verified via code review." << std::endl;
 }
 
+void test_variant_bit_pattern() {
+    std::cout << "Testing variant bit pattern extraction..." << std::endl;
+
+    Core::ScanValue sv;
+    sv.type = Core::DataType::Float;
+    sv.value = 123.456f;
+
+    uint32_t extracted = std::visit([](auto&& arg) -> uint32_t {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (sizeof(T) == 4 && !std::is_same_v<T, std::string> && !std::is_same_v<T, std::vector<uint8_t>>)
+            return std::bit_cast<uint32_t>(arg);
+        return 0;
+    }, sv.value);
+
+    float recovered = std::bit_cast<float>(extracted);
+    assert(recovered == 123.456f);
+
+    sv.type = Core::DataType::Int32;
+    sv.value = (int32_t)-123456;
+    extracted = std::visit([](auto&& arg) -> uint32_t {
+        using T = std::decay_t<decltype(arg)>;
+        if constexpr (sizeof(T) == 4 && !std::is_same_v<T, std::string> && !std::is_same_v<T, std::vector<uint8_t>>)
+            return std::bit_cast<uint32_t>(arg);
+        return 0;
+    }, sv.value);
+
+    int32_t recovered_int = std::bit_cast<int32_t>(extracted);
+    assert(recovered_int == -123456);
+
+    std::cout << "test_variant_bit_pattern passed!" << std::endl;
+}
+
 int main() {
     test_aob_parse();
     test_history();
+    test_variant_bit_pattern();
     return 0;
 }

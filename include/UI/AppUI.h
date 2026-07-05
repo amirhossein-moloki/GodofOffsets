@@ -50,7 +50,7 @@ private:
 
     std::vector<Core::Signature> m_sigs;
 
-    char m_processName[64] = "RainbowSix.exe";
+    char m_processName[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
     ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
