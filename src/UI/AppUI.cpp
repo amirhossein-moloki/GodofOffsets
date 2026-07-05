@@ -845,7 +845,10 @@ void AppUI::RenderDumperTab() {
     }
 
     if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
-    static char targetModule[64] = "RainbowSix.exe";
+    static char targetModule[64] = "";
+    if (targetModule[0] == '\0' && m_isAttached) {
+        strncpy(targetModule, m_processName, sizeof(targetModule) - 1);
+    }
     ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
@@ -1018,10 +1021,52 @@ void AppUI::RenderHexViewerTab() {
 
                 for (int j = 0; j < 16; ++j) {
                     uint8_t b = buffer[i * 16 + j];
+                    uintptr_t currentByteAddr = m_hexBase + i * 16 + j;
+
+                    std::string id = "##hexbyte_" + std::to_string(i) + "_" + std::to_string(j);
+
                     if (b == 0) ImGui::TextDisabled("00 ");
                     else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
                     else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
                     else ImGui::Text("%02X ", b);
+
+                    if (ImGui::BeginPopupContextItem(id.c_str())) {
+                        ImGui::Text("Edit Byte at %s", Utils::ToHex(currentByteAddr).c_str());
+                        ImGui::Separator();
+
+                        static char editBuf[4] = "";
+                        if (ImGui::IsWindowAppearing()) {
+                            snprintf(editBuf, sizeof(editBuf), "%02X", b);
+                        }
+
+                        ImGui::PushItemWidth(50);
+                        if (ImGui::InputText("##edit", editBuf, sizeof(editBuf), ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            try {
+                                uint8_t newVal = (uint8_t)std::stoul(editBuf, nullptr, 16);
+                                if (m_pm.WriteMemory(currentByteAddr, &newVal, 1)) {
+                                    AddLog("Updated byte at " + Utils::ToHex(currentByteAddr) + " to " + editBuf, LogSeverity::Success);
+                                } else {
+                                    AddLog("Failed to update byte at " + Utils::ToHex(currentByteAddr), LogSeverity::Error);
+                                }
+                            } catch(...) {}
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::PopItemWidth();
+
+                        if (ImGui::Button("Apply")) {
+                             try {
+                                uint8_t newVal = (uint8_t)std::stoul(editBuf, nullptr, 16);
+                                if (m_pm.WriteMemory(currentByteAddr, &newVal, 1)) {
+                                    AddLog("Updated byte at " + Utils::ToHex(currentByteAddr) + " to " + editBuf, LogSeverity::Success);
+                                } else {
+                                    AddLog("Failed to update byte at " + Utils::ToHex(currentByteAddr), LogSeverity::Error);
+                                }
+                            } catch(...) {}
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+
                     ImGui::SameLine();
                 }
 
