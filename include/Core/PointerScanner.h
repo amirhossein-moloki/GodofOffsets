@@ -7,7 +7,7 @@
 #include <vector>
 #include <string>
 #include <atomic>
-#include <set>
+#include <unordered_set>
 #include <mutex>
 #include "Core/ProcessManager.h"
 #include "Utils/ArenaAllocator.h"
@@ -53,7 +53,7 @@ private:
     size_t m_nodeCount = 0;
 
     void BuildPointerMap();
-    void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited);
+    void FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::unordered_set<uintptr_t>& visited);
 };
 
 } // namespace Core

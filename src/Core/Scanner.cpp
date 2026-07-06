@@ -162,8 +162,9 @@ void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
     std::vector<std::future<void>> futures;
 
     for (auto& sig : sigs) {
-        if (isVulkan && sig.moduleName == "RainbowSix.exe") {
-            sig.moduleName = "RainbowSix_Vulkan.exe";
+        if (isVulkan && (sig.moduleName.find(".exe") != std::string::npos)) {
+            // Placeholder for generic Vulkan module redirection if needed.
+            // Game-specific logic should be moved to signatures.json or a plugin system.
         }
 
         futures.push_back(std::async(std::launch::async, [this, &sig]() {

@@ -192,6 +192,11 @@ NTSTATUS HideDriver(PDRIVER_OBJECT DriverObject) {
 }
 
 NTSTATUS CopyVirtualMemory(DWORD pid, PVOID sourceAddress, PVOID targetAddress, SIZE_T size) {
+    // Security check: ensure the addresses are in user-space
+    if ((UINT64)sourceAddress >= 0x800000000000 || (UINT64)targetAddress >= 0x800000000000) {
+        return STATUS_ACCESS_DENIED;
+    }
+
     PEPROCESS process = NULL;
     NTSTATUS status = PsLookupProcessByProcessId((HANDLE)pid, &process);
     if (NT_SUCCESS(status)) {
