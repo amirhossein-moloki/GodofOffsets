@@ -1,7 +1,7 @@
 #include "Core/PointerScanner.h"
 #include <algorithm>
 #include <iostream>
-#include <set>
+#include <unordered_set>
 #include <functional>
 #include <sstream>
 #include <thread>
@@ -35,7 +35,7 @@ void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t max
         m_progress = 0.8f; // Map building finished
 
         // Stage 2: Recursive chain discovery
-        std::set<uintptr_t> visited;
+        std::unordered_set<uintptr_t> visited;
         std::vector<uintptr_t> currentOffsets;
         FindChainsRecursive(targetAddress, 1, maxDepth, maxOffset, currentOffsets, visited);
 
@@ -120,7 +120,7 @@ void PointerScanner::BuildPointerMap() {
     m_progress = 0.8f;
 }
 
-void PointerScanner::FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::set<uintptr_t>& visited) {
+void PointerScanner::FindChainsRecursive(uintptr_t currentTarget, int depth, int maxDepth, size_t maxOffset, std::vector<uintptr_t>& currentOffsets, std::unordered_set<uintptr_t>& visited) {
     if (depth > maxDepth || m_cancelRequested || !m_pointerNodes) return;
     if (visited.count(currentTarget)) return;
     visited.insert(currentTarget);
