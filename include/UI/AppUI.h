@@ -50,7 +50,7 @@ private:
 
     std::vector<Core::Signature> m_sigs;
 
-    char m_processName[64] = "RainbowSix.exe";
+    char m_processName[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
     ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
@@ -78,6 +78,7 @@ private:
     // Structure Dump UI
     uintptr_t m_structBase = 0;
     char m_structName[64] = "MyStruct";
+    char m_dumperModule[64] = "";
     int m_structCount = 1;
     size_t m_structSize = 0;
     std::vector<Core::StructField> m_structFields;

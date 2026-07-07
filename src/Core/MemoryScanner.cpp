@@ -264,6 +264,22 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
     bool hasAVX2 = useSIMD && SupportsAVX2();
     bool hasSSE42 = useSIMD && SupportsSSE42();
 
+    uint64_t targetBitPattern = 0;
+    if (useSIMD) {
+        std::visit([&](auto&& arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_arithmetic_v<T>) {
+                if constexpr (std::is_floating_point_v<T>) {
+                    if constexpr (sizeof(T) == 4) targetBitPattern = std::bit_cast<uint32_t>(static_cast<float>(arg));
+                    else targetBitPattern = std::bit_cast<uint64_t>(static_cast<double>(arg));
+                } else {
+                    if constexpr (sizeof(T) == 4) targetBitPattern = (uint32_t)arg;
+                    else if constexpr (sizeof(T) == 8) targetBitPattern = (uint64_t)arg;
+                }
+            }
+        }, val.value);
+    }
+
     for (size_t offset = 0; offset < region.size; ) {
         if (m_cancelRequested) break;
 
@@ -278,7 +294,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
 
         if (hasAVX2 && toRead >= 32) {
             if (typeSize == 4) {
-                uint32_t target = std::get<uint32_t>(val.value);
+                uint32_t target = (uint32_t)targetBitPattern;
                 __m256i targetVec = _mm256_set1_epi32(target);
                 for (; i <= toRead - 32; i += 32) {
                     __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
@@ -292,7 +308,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
                     }
                 }
             } else if (typeSize == 8) {
-                uint64_t target = std::get<uint64_t>(val.value);
+                uint64_t target = targetBitPattern;
                 __m256i targetVec = _mm256_set1_epi64x(target);
                 for (; i <= toRead - 32; i += 32) {
                     __m256i data = _mm256_loadu_si256((const __m256i*)(buffer.data() + i));
@@ -308,7 +324,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
             }
         } else if (hasSSE42 && toRead >= 16) {
             if (typeSize == 4) {
-                uint32_t target = std::get<uint32_t>(val.value);
+                uint32_t target = (uint32_t)targetBitPattern;
                 __m128i targetVec = _mm_set1_epi32(target);
                 for (; i <= toRead - 16; i += 16) {
                     __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));
@@ -322,7 +338,7 @@ void MemoryScanner::ScanRegion(const RegionInfo& region, const ScanValue& val, S
                     }
                 }
             } else if (typeSize == 8) {
-                uint64_t target = std::get<uint64_t>(val.value);
+                uint64_t target = targetBitPattern;
                 __m128i targetVec = _mm_set1_epi64x(target);
                 for (; i <= toRead - 16; i += 16) {
                     __m128i data = _mm_loadu_si128((const __m128i*)(buffer.data() + i));

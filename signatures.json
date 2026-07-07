@@ -1,52 +1,36 @@
 {
     "signatures": [
         {
-            "name": "GameManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "GameTimer",
+            "pattern": "A1 ? ? ? ? 48 83 C4 20 5B C3",
+            "module": "winmine.exe",
+            "offset": 1,
             "relative": true,
-            "description": "Main GameManager pointer (RIP-relative)"
+            "description": "Example: Game timer pointer in Minesweeper"
         },
         {
-            "name": "EntityList",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 90 ? ? ? ? 48 8B D8",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "MineCount",
+            "pattern": "8B 0D ? ? ? ? 85 C9 74 05",
+            "module": "winmine.exe",
+            "offset": 2,
             "relative": true,
-            "description": "Global Entity List pointer"
+            "description": "Example: Mine counter pointer"
         },
         {
-            "name": "NetworkManager",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B D7 FF 50 30",
-            "module": "RainbowSix.exe",
+            "name": "Generic_RIP_Relative_Example",
+            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08",
+            "module": "target_process.exe",
             "offset": 0,
             "relative": true,
-            "description": "NetworkManager for player info"
+            "description": "Template for 64-bit RIP-relative pointer"
         },
         {
-            "name": "RenderView",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 50 18 48 8B C8",
-            "module": "RainbowSix.exe",
+            "name": "Generic_Absolute_Example",
+            "pattern": "E8 ? ? ? ? 83 C4 04",
+            "module": "target_process.exe",
             "offset": 0,
-            "relative": true,
-            "description": "RenderView for FOV/Camera"
-        },
-        {
-            "name": "ProfileManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 70 48 85 C9 74 0F",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "ProfileManager for local player"
-        },
-        {
-            "name": "RoundManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 18 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "Round states and timers"
+            "relative": false,
+            "description": "Template for absolute AOB scan"
         }
     ]
 }

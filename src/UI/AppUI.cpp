@@ -566,8 +566,7 @@ void AppUI::RenderSignatureTab() {
     if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35))) {
         AddLog("Starting signature scan...", LogSeverity::Info);
         m_status = "Scanning...";
-        bool isVulkan = (std::string(m_processName).find("Vulkan") != std::string::npos);
-        m_scanner.Run(m_sigs, isVulkan);
+        m_scanner.Run(m_sigs);
         m_status = "Scan Complete";
         AddLog("Signature scan complete.", LogSeverity::Success);
     }
@@ -845,13 +844,13 @@ void AppUI::RenderDumperTab() {
     }
 
     if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
-    static char targetModule[64] = "RainbowSix.exe";
-    ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
+    if (m_dumperModule[0] == '\0' && m_processName[0] != '\0') strcpy(m_dumperModule, m_processName);
+    ImGui::InputText("Module Name##Dumper", m_dumperModule, sizeof(m_dumperModule), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Analyze Data Sections", ImVec2(200, 35))) {
-        AddLog("Analyzing data sections for module: " + std::string(targetModule), LogSeverity::Info);
-        m_dumpedResults = m_dumper.AnalyzeDataSections(targetModule);
+        AddLog("Analyzing data sections for module: " + std::string(m_dumperModule), LogSeverity::Info);
+        m_dumpedResults = m_dumper.AnalyzeDataSections(m_dumperModule);
         m_dumper.SaveToJSON("data_analysis.json", m_dumpedResults);
         m_status = "Analysis complete. Results in data_analysis.json";
         AddLog("Data section analysis complete. Found " + std::to_string(m_dumpedResults.size()) + " potential pointers.", LogSeverity::Success);
@@ -1011,6 +1010,9 @@ void AppUI::RenderHexViewerTab() {
     if (ImGui::BeginChild("HexScroll", ImVec2(0, 0), true)) {
         const int rows = 32;
         uint8_t buffer[rows * 16];
+        static char editBuf[4] = "";
+        static uintptr_t editAddr = 0;
+
         if (m_pm.ReadMemory(m_hexBase, buffer, sizeof(buffer))) {
             for (int i = 0; i < rows; ++i) {
                 ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)(m_hexBase + i * 16));
@@ -1018,10 +1020,32 @@ void AppUI::RenderHexViewerTab() {
 
                 for (int j = 0; j < 16; ++j) {
                     uint8_t b = buffer[i * 16 + j];
+                    uintptr_t currentAddr = m_hexBase + i * 16 + j;
+
                     if (b == 0) ImGui::TextDisabled("00 ");
                     else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
                     else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
                     else ImGui::Text("%02X ", b);
+
+                    if (ImGui::BeginPopupContextItem(Utils::ToHex(currentAddr).c_str())) {
+                        if (ImGui::IsWindowAppearing()) {
+                            sprintf(editBuf, "%02X", b);
+                            editAddr = currentAddr;
+                        }
+                        ImGui::Text("Edit Byte at 0x%llX", (unsigned long long)currentAddr);
+                        ImGui::InputText("##editbyte", editBuf, sizeof(editBuf), ImGuiInputTextFlags_CharsHexadecimal);
+                        if (ImGui::Button("Write")) {
+                            uint8_t newVal = (uint8_t)std::stoul(editBuf, nullptr, 16);
+                            if (m_pm.WriteMemory(editAddr, &newVal, 1)) {
+                                AddLog("Wrote 0x" + std::string(editBuf) + " to 0x" + Utils::ToHex(editAddr), LogSeverity::Success);
+                            } else {
+                                AddLog("Failed to write to 0x" + Utils::ToHex(editAddr), LogSeverity::Error);
+                            }
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+
                     ImGui::SameLine();
                 }
 
