@@ -6,6 +6,7 @@
 #include <future>
 #include <iostream>
 #include <bit>
+#include "Utils/ThreadPool.h"
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -158,28 +159,43 @@ std::vector<Signature> Scanner::LoadSignatures(const std::string& filename) {
     return sigs;
 }
 
-void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
-    std::vector<std::future<void>> futures;
-
-    for (auto& sig : sigs) {
-        if (isVulkan && sig.moduleName == "RainbowSix.exe") {
-            sig.moduleName = "RainbowSix_Vulkan.exe";
+void Scanner::Run(std::vector<Signature>& sigs) {
+    if (m_isScanning) {
+        if (m_sigScanFuture.valid() && m_sigScanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            m_isScanning = false;
+        } else {
+            return;
         }
-
-        futures.push_back(std::async(std::launch::async, [this, &sig]() {
-            uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
-            if (addr) {
-                addr += sig.offset;
-                if (sig.isRelative) {
-                    sig.result = m_resolver.ResolveWithZydis(addr);
-                } else {
-                    sig.result = addr;
-                }
-            }
-        }));
     }
 
-    for (auto& f : futures) f.wait();
+    m_isScanning = true;
+    m_cancelRequested = false;
+
+    m_sigScanFuture = std::async(std::launch::async, [this, &sigs]() {
+        unsigned int numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 1;
+
+        Utils::ThreadPool pool(numThreads);
+        std::vector<std::future<void>> futures;
+
+        for (auto& sig : sigs) {
+            futures.push_back(pool.Enqueue([this, &sig]() {
+                if (m_cancelRequested) return;
+                uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
+                if (addr) {
+                    addr += sig.offset;
+                    if (sig.isRelative) {
+                        sig.result = m_resolver.ResolveWithZydis(addr);
+                    } else {
+                        sig.result = addr;
+                    }
+                }
+            }));
+        }
+
+        for (auto& f : futures) f.wait();
+        m_isScanning = false;
+    });
 }
 
 } // namespace Core

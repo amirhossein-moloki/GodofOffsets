@@ -1,7 +1,4 @@
 build/
-!build/
-!build/Release/
-!build/Release/UniversalOffsetDumper.exe
 _deps/
 .vscode/
 *.exe
