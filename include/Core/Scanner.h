@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <string>
+#include <future>
 #include <nlohmann/json.hpp>
 #include "Core/ProcessManager.h"
 #include "Core/OffsetResolver.h"
@@ -27,11 +28,17 @@ public:
 
     uintptr_t FindPattern(const std::string& moduleName, const std::string& pattern);
     std::vector<Signature> LoadSignatures(const std::string& filename);
-    void Run(std::vector<Signature>& sigs, bool isVulkan = false);
+    void Run(std::vector<Signature>& sigs);
+
+    bool IsScanning() const { return m_isScanning; }
+    void Cancel() { m_cancelRequested = true; }
 
 protected:
     const ProcessManager& m_pm;
     OffsetResolver m_resolver;
+    bool m_isScanning = false;
+    bool m_cancelRequested = false;
+    std::future<void> m_sigScanFuture;
 
     uintptr_t ScanInternal(uintptr_t base, size_t size, const std::string& pattern);
 
