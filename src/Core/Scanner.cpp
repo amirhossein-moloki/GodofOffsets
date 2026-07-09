@@ -162,10 +162,6 @@ void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
     std::vector<std::future<void>> futures;
 
     for (auto& sig : sigs) {
-        if (isVulkan && sig.moduleName == "RainbowSix.exe") {
-            sig.moduleName = "RainbowSix_Vulkan.exe";
-        }
-
         futures.push_back(std::async(std::launch::async, [this, &sig]() {
             uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
             if (addr) {

@@ -76,62 +76,49 @@ void AppUI::Render() {
     // Handle Global Keyboard Shortcuts
     auto& io = ImGui::GetIO();
     if (io.KeyAlt) {
-        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_activeTab = TabID::Process;
-        if (ImGui::IsKeyPressed(ImGuiKey_M) && m_isAttached) m_activeTab = TabID::MemoryScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && m_isAttached) m_activeTab = TabID::SignatureScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_T) && m_isAttached) m_activeTab = TabID::PointerScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_D) && m_isAttached) m_activeTab = TabID::Dumper;
-        if (ImGui::IsKeyPressed(ImGuiKey_H) && m_isAttached) m_activeTab = TabID::HexViewer;
-        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
+        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_showProcessWindow = !m_showProcessWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_M)) m_showScannerWindow = !m_showScannerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) m_showSigScannerWindow = !m_showSigScannerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_T)) m_showPointerScannerWindow = !m_showPointerScannerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_D)) m_showDumperWindow = !m_showDumperWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_H)) m_showHexViewerWindow = !m_showHexViewerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_showLogWindow = !m_showLogWindow;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    // Create a DockSpace that fills the entire viewport
+    ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
+    // Status Window (Top Bar)
+    ImGui::Begin("Status Bar", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     RenderHeader();
-    ImGui::Separator();
+    ImGui::End();
 
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
-            m_activeTab = TabID::None;
-        }
+    // Render Windows
+    if (m_showProcessWindow) {
+        ImGui::Begin("[P] Process List", &m_showProcessWindow);
+        RenderProcessTab();
+        ImGui::End();
+    }
 
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
+    auto RenderDockWindow = [&](const char* name, bool* open, auto func, bool requireAttachment = true) {
+        if (*open) {
+            if (ImGui::Begin(name, open)) {
+                if (requireAttachment && !m_isAttached) {
+                    RenderEmptyState("Attachment required.", "Select a process from the Process List to begin.");
+                } else {
+                    func();
                 }
             }
-        };
+            ImGui::End();
+        }
+    };
 
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
-    }
-
-    ImGui::End();
+    RenderDockWindow("[M] Memory Scanner", &m_showScannerWindow, [&]() { RenderMemoryScannerTab(); });
+    RenderDockWindow("[S] Signature Scanner", &m_showSigScannerWindow, [&]() { RenderSignatureTab(); });
+    RenderDockWindow("[T] Pointer Scanner", &m_showPointerScannerWindow, [&]() { RenderPointerScanTab(); });
+    RenderDockWindow("[D] Structure Dumper", &m_showDumperWindow, [&]() { RenderDumperTab(); });
+    RenderDockWindow("[H] Hex Viewer", &m_showHexViewerWindow, [&]() { RenderHexViewerTab(); });
+    RenderDockWindow("[G] Activity Log", &m_showLogWindow, [&]() { RenderActivityLogTab(); }, false);
 }
 
 void AppUI::RenderHeader() {
@@ -241,6 +228,8 @@ void AppUI::RenderProcessTab() {
     if (ImGui::Button("Attach (Standard Mode)", ImVec2(-1, 45))) {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Standard)) {
             m_isAttached = true;
+            m_lastAttachedProcess = m_processName;
+            m_dumperModule = m_processName;
             AddToRecentProcesses(m_processName);
 
             PushStatusColor("Attached (Standard)");
@@ -263,6 +252,8 @@ void AppUI::RenderProcessTab() {
     if (ImGui::Button("Attach (Stealth Mode)", ImVec2(-1, 45))) {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Stealth)) {
             m_isAttached = true;
+            m_lastAttachedProcess = m_processName;
+            m_dumperModule = m_processName;
             AddToRecentProcesses(m_processName);
 
             PushStatusColor("Attached (Stealth Mode)");
@@ -566,8 +557,7 @@ void AppUI::RenderSignatureTab() {
     if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35))) {
         AddLog("Starting signature scan...", LogSeverity::Info);
         m_status = "Scanning...";
-        bool isVulkan = (std::string(m_processName).find("Vulkan") != std::string::npos);
-        m_scanner.Run(m_sigs, isVulkan);
+        m_scanner.Run(m_sigs, false);
         m_status = "Scan Complete";
         AddLog("Signature scan complete.", LogSeverity::Success);
     }
@@ -941,7 +931,8 @@ void AppUI::JumpToHex(uintptr_t addr) {
         m_historyIndex = (int)m_hexHistory.size() - 1;
     }
 
-    m_activeTab = TabID::HexViewer;
+    m_showHexViewerWindow = true;
+    ImGui::SetWindowFocus("[H] Hex Viewer");
 }
 
 void AppUI::RenderHexViewerTab() {

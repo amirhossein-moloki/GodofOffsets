@@ -50,10 +50,23 @@ private:
 
     std::vector<Core::Signature> m_sigs;
 
-    char m_processName[64] = "RainbowSix.exe";
+    char m_processName[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
     ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+
+    // Docking Window Flags
+    bool m_showProcessWindow = true;
+    bool m_showScannerWindow = true;
+    bool m_showSigScannerWindow = true;
+    bool m_showPointerScannerWindow = true;
+    bool m_showDumperWindow = true;
+    bool m_showHexViewerWindow = true;
+    bool m_showLogWindow = true;
+
+    // Cross-tab Synchronization
+    std::string m_lastAttachedProcess = "";
+    std::string m_dumperModule = "";
 
     // Process Picker
     char m_procFilter[64] = "";
