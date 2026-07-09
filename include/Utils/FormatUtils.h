@@ -9,6 +9,21 @@
 
 namespace Utils {
 
+#ifdef _WIN32
+inline std::string GetLastErrorAsString(DWORD errorCode) {
+    if (errorCode == 0) return "Success";
+    LPSTR messageBuffer = nullptr;
+    size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                 NULL, errorCode, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+    std::string message(messageBuffer, size);
+    LocalFree(messageBuffer);
+    // Remove trailing newline if present
+    if (!message.empty() && message.back() == '\n') message.pop_back();
+    if (!message.empty() && message.back() == '\r') message.pop_back();
+    return message;
+}
+#endif
+
 inline std::string ToHex(uintptr_t value, bool prefix = true, bool uppercase = true) {
     std::stringstream ss;
     if (prefix) ss << "0x";
