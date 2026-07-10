@@ -50,7 +50,7 @@ private:
 
     std::vector<Core::Signature> m_sigs;
 
-    char m_processName[64] = "RainbowSix.exe";
+    char m_processName[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
     ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
@@ -88,10 +88,19 @@ private:
     uintptr_t m_rangeEnd = 0;
     char m_rangeType[32] = "uint32";
 
+    // Window Visibility State
+    bool m_showProcessWindow = true;
+    bool m_showScannerWindow = true;
+    bool m_showSignatureWindow = true;
+    bool m_showPointerWindow = true;
+    bool m_showDumperWindow = true;
+    bool m_showHexWindow = true;
+    bool m_showLogWindow = true;
+
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
-    TabID m_activeTab = TabID::Process;
+    TabID m_activeTab = TabID::None;
     std::vector<uintptr_t> m_hexHistory;
     int m_historyIndex = -1;
 

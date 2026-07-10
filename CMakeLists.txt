@@ -54,6 +54,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE Zydis)
 
 if(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX2)
+    # Use static C++ runtime
+    set_property(TARGET ${PROJECT_NAME} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE -mavx2)
 endif()

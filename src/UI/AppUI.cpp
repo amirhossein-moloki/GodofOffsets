@@ -76,62 +76,81 @@ void AppUI::Render() {
     // Handle Global Keyboard Shortcuts
     auto& io = ImGui::GetIO();
     if (io.KeyAlt) {
-        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_activeTab = TabID::Process;
-        if (ImGui::IsKeyPressed(ImGuiKey_M) && m_isAttached) m_activeTab = TabID::MemoryScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && m_isAttached) m_activeTab = TabID::SignatureScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_T) && m_isAttached) m_activeTab = TabID::PointerScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_D) && m_isAttached) m_activeTab = TabID::Dumper;
-        if (ImGui::IsKeyPressed(ImGuiKey_H) && m_isAttached) m_activeTab = TabID::HexViewer;
-        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
+        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_showProcessWindow = !m_showProcessWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_M)) m_showScannerWindow = !m_showScannerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) m_showSignatureWindow = !m_showSignatureWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_T)) m_showPointerWindow = !m_showPointerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_D)) m_showDumperWindow = !m_showDumperWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_H)) m_showHexWindow = !m_showHexWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_showLogWindow = !m_showLogWindow;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    // Set up Docking Workspace
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
 
-    RenderHeader();
-    ImGui::Separator();
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::Begin("DockSpaceParent", nullptr, window_flags);
+    ImGui::PopStyleVar(3);
+
+    ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Exit", "Alt+F4")) { PostQuitMessage(0); }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Windows")) {
+            ImGui::MenuItem("Process List", "Alt+P", &m_showProcessWindow);
+            ImGui::MenuItem("Memory Scanner", "Alt+M", &m_showScannerWindow);
+            ImGui::MenuItem("Signature Scanner", "Alt+S", &m_showSignatureWindow);
+            ImGui::MenuItem("Pointer Scanner", "Alt+T", &m_showPointerWindow);
+            ImGui::MenuItem("Structure Dumper", "Alt+D", &m_showDumperWindow);
+            ImGui::MenuItem("Hex Viewer", "Alt+H", &m_showHexWindow);
+            ImGui::MenuItem("Activity Log", "Alt+G", &m_showLogWindow);
+            ImGui::EndMenu();
+        }
+
+        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 300);
+        RenderHeader();
+
+        ImGui::EndMainMenuBar();
+    }
+
+    auto RenderWindow = [&](const char* title, bool* p_open, TabID id, auto func) {
+        if (!*p_open) return;
+
+        if (m_activeTab == id) {
+            ImGui::SetNextWindowFocus();
             m_activeTab = TabID::None;
         }
 
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
+        ImGui::Begin(title, p_open);
+        if (!m_isAttached && id != TabID::Process && id != TabID::ActivityLog) {
+            RenderEmptyState("Attachment required to access this feature.", "Go to the Process List window to attach.");
+        } else {
+            func();
+        }
+        ImGui::End();
+    };
 
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
+    RenderWindow("[P] Process List", &m_showProcessWindow, TabID::Process, [&]() { RenderProcessTab(); });
+    RenderWindow("[M] Memory Scanner", &m_showScannerWindow, TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
+    RenderWindow("[S] Signature Scanner", &m_showSignatureWindow, TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
+    RenderWindow("[T] Pointer Scanner", &m_showPointerWindow, TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
+    RenderWindow("[D] Structure Dumper", &m_showDumperWindow, TabID::Dumper, [&]() { RenderDumperTab(); });
+    RenderWindow("[H] Hex Viewer", &m_showHexWindow, TabID::HexViewer, [&]() { RenderHexViewerTab(); });
+    RenderWindow("[G] Activity Log", &m_showLogWindow, TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
 
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
-
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
-    }
-
-    ImGui::End();
+    ImGui::End(); // DockSpaceParent
 }
 
 void AppUI::RenderHeader() {
@@ -845,7 +864,14 @@ void AppUI::RenderDumperTab() {
     }
 
     if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
-    static char targetModule[64] = "RainbowSix.exe";
+    static char targetModule[64] = "";
+    static std::string lastAttachedProcess = "";
+
+    if (m_isAttached && lastAttachedProcess != m_processName) {
+        strncpy(targetModule, m_processName, sizeof(targetModule) - 1);
+        targetModule[sizeof(targetModule) - 1] = '\0';
+        lastAttachedProcess = m_processName;
+    }
     ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
@@ -872,6 +898,28 @@ void AppUI::RenderDumperTab() {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::Text("%s", m_dumpedResults[i].name.c_str());
+                if (ImGui::BeginPopupContextItem()) {
+                    if (ImGui::MenuItem("Jump to in Hex Viewer")) {
+                        uintptr_t absoluteAddr = 0;
+                        if (!m_dumpedResults[i].moduleName.empty()) {
+                            absoluteAddr = m_pm.GetModuleBase(m_dumpedResults[i].moduleName) + m_dumpedResults[i].offset;
+                        } else {
+                            // If module is empty, offset might be relative to some base or absolute
+                            // For Structure Dump, it's relative to m_structBase.
+                            // However, AnalyzeDataSections fills moduleName.
+                            // We'll try to find if the address matches any module if moduleName is empty.
+                            absoluteAddr = m_dumpedResults[i].offset;
+                        }
+                        JumpToHex(absoluteAddr);
+                    }
+                    if (ImGui::MenuItem("Copy Offset")) {
+                        ImGui::SetClipboardText(Utils::ToHex(m_dumpedResults[i].offset).c_str());
+                    }
+                    if (ImGui::MenuItem("Copy Value")) {
+                        ImGui::SetClipboardText(m_dumpedResults[i].value.c_str());
+                    }
+                    ImGui::EndPopup();
+                }
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("0x%llX", (unsigned long long)m_dumpedResults[i].offset);
                 ImGui::TableSetColumnIndex(2);
@@ -925,6 +973,7 @@ void AppUI::AddToRecentProcesses(const std::string& name) {
 
 void AppUI::JumpToHex(uintptr_t addr) {
     m_hexBase = addr;
+    m_showHexWindow = true; // Ensure window is visible
     AddLog("Jumping to address: " + Utils::ToHex(addr) + " in Hex Viewer", LogSeverity::Info);
 
     sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
