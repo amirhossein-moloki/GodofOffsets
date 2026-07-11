@@ -744,6 +744,12 @@ void AppUI::RenderPointerScanTab() {
 }
 
 void AppUI::RenderDumperTab() {
+    static char targetModule[64] = "";
+    if (m_isAttached && targetModule[0] == '\0') {
+        size_t len = std::string(m_processName).copy(targetModule, sizeof(targetModule) - 1);
+        targetModule[len] = '\0';
+    }
+
     if (ImGui::CollapsingHeader("Structure Dumper", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::InputText("Struct Name", m_structName, sizeof(m_structName), ImGuiInputTextFlags_EnterReturnsTrue);
@@ -845,7 +851,6 @@ void AppUI::RenderDumperTab() {
     }
 
     if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
-    static char targetModule[64] = "RainbowSix.exe";
     ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
@@ -927,7 +932,7 @@ void AppUI::JumpToHex(uintptr_t addr) {
     m_hexBase = addr;
     AddLog("Jumping to address: " + Utils::ToHex(addr) + " in Hex Viewer", LogSeverity::Info);
 
-    sprintf(m_hexAddrBuf, "%llX", (unsigned long long)m_hexBase);
+    snprintf(m_hexAddrBuf, sizeof(m_hexAddrBuf), "%llX", (unsigned long long)m_hexBase);
 
     // Add to history
     if (m_historyIndex == -1 || m_hexHistory[m_historyIndex] != addr) {
@@ -942,6 +947,7 @@ void AppUI::JumpToHex(uintptr_t addr) {
     }
 
     m_activeTab = TabID::HexViewer;
+    ImGui::SetWindowFocus("[H] Hex Viewer");
 }
 
 void AppUI::RenderHexViewerTab() {
@@ -1013,7 +1019,9 @@ void AppUI::RenderHexViewerTab() {
         uint8_t buffer[rows * 16];
         if (m_pm.ReadMemory(m_hexBase, buffer, sizeof(buffer))) {
             for (int i = 0; i < rows; ++i) {
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "0x%012llX: ", (unsigned long long)(m_hexBase + i * 16));
+                char rowLabel[32];
+                snprintf(rowLabel, sizeof(rowLabel), "0x%012llX: ", (unsigned long long)(m_hexBase + i * 16));
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", rowLabel);
                 ImGui::SameLine();
 
                 for (int j = 0; j < 16; ++j) {

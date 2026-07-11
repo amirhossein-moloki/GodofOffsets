@@ -15,7 +15,7 @@ PointerScanner::PointerScanner(const ProcessManager& pm) : m_pm(pm) {}
 void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t maxOffset) {
     if (m_isScanning) return;
 
-    std::thread([this, targetAddress, maxDepth, maxOffset]() {
+    m_scanFuture = std::async(std::launch::async, [this, targetAddress, maxDepth, maxOffset]() {
         m_isScanning = true;
         m_cancelRequested = false;
         m_progress = 0.0f;
@@ -41,7 +41,7 @@ void PointerScanner::StartScan(uintptr_t targetAddress, int maxDepth, size_t max
 
         m_progress = 1.0f;
         m_isScanning = false;
-    }).detach();
+    });
 }
 
 void PointerScanner::BuildPointerMap() {
@@ -56,7 +56,7 @@ void PointerScanner::BuildPointerMap() {
     // Estimate node count to reserve space (heuristic: 1 pointer per 128 bytes)
     allNodes.reserve(totalSize / 128);
 
-    size_t processedSize = 0;
+    std::atomic<size_t> processedSize = 0;
     unsigned int numThreads = std::thread::hardware_concurrency();
     if (numThreads == 0) numThreads = 1;
     Utils::ThreadPool pool(numThreads);
@@ -68,6 +68,7 @@ void PointerScanner::BuildPointerMap() {
 #ifdef _WIN32
         if (!(region.protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE))) {
             processedSize += region.size;
+            m_progress = 0.7f * ((float)processedSize.load() / totalSize);
             continue;
         }
 #endif
@@ -96,9 +97,9 @@ void PointerScanner::BuildPointerMap() {
             {
                 std::lock_guard<std::mutex> lock(vectorMutex);
                 allNodes.insert(allNodes.end(), localNodes.begin(), localNodes.end());
-                processedSize += region.size;
-                m_progress = 0.7f * ((float)processedSize / totalSize);
             }
+            processedSize += region.size;
+            m_progress = 0.7f * ((float)processedSize.load() / totalSize);
         }));
     }
 
