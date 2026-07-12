@@ -72,7 +72,7 @@ cmake --build . --config Release
 ## 🛠 راهنمای استفاده از بخش‌های مختلف
 
 ### تب Process (اتصال به برنامه)
-در این بخش نام پروسس هدف (مثلاً `RainbowSix.exe`) را وارد کنید. دو حالت برای اتصال وجود دارد:
+در این بخش نام پروسس هدف (مثلاً `winmine.exe`) را وارد کنید. دو حالت برای اتصال وجود دارد:
 - **Standard:** استفاده از توابع استاندارد ویندوز.
 - **Stealth:** تلاش برای باز کردن پروسس با دسترسی‌های محدودتر و تکنیک‌های مخفی (برای دور زدن مانیتورینگ آنتی‌چیت).
 
@@ -100,10 +100,10 @@ cmake --build . --config Release
 برای اضافه کردن آفست‌های جدید، فایل `signatures.json` را ویرایش کنید:
 ```json
 {
-    "name": "GameManager",
-    "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08",
-    "module": "RainbowSix.exe",
-    "offset": 0,
+    "name": "Example_Pointer",
+    "pattern": "48 8B 05 ? ? ? ? 48 8D 48 10",
+    "module": "winmine.exe",
+    "offset": 3,
     "relative": true,
     "description": "توضیحات مربوط به آفست"
 }
