@@ -50,10 +50,19 @@ private:
 
     std::vector<Core::Signature> m_sigs;
 
-    char m_processName[64] = "RainbowSix.exe";
+    char m_processName[64] = "";
     bool m_isAttached = false;
     std::string m_status = "Ready";
     ImVec4 m_statusColor = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+
+    // Window Visibility Flags (Docking Workspace)
+    bool m_showProcessWindow = true;
+    bool m_showScannerWindow = true;
+    bool m_showSignatureWindow = true;
+    bool m_showPointerWindow = true;
+    bool m_showDumperWindow = true;
+    bool m_showHexWindow = true;
+    bool m_showLogWindow = true;
 
     // Process Picker
     char m_procFilter[64] = "";
@@ -64,8 +73,8 @@ private:
     // Memory Scanner UI state
     Core::DataType m_selectedDataType = Core::DataType::Int32;
     Core::ScanType m_selectedScanType = Core::ScanType::ExactValue;
-    char m_scanValueBuf[128] = "0";
-    char m_scanValueBuf2[128] = "0";
+    char m_scanValueBuf[128] = "";
+    char m_scanValueBuf2[128] = "";
     bool m_modifyProtection = false;
 
     // Pointer Scan UI
@@ -77,9 +86,10 @@ private:
 
     // Structure Dump UI
     uintptr_t m_structBase = 0;
-    char m_structName[64] = "MyStruct";
+    char m_structName[64] = "";
     int m_structCount = 1;
     size_t m_structSize = 0;
+    std::string m_dumperModule = "";
     std::vector<Core::StructField> m_structFields;
     std::vector<Core::OffsetResult> m_dumpedResults;
 
@@ -91,7 +101,8 @@ private:
     // Hex Viewer State
     uintptr_t m_hexBase = 0;
     char m_hexAddrBuf[32] = "0";
-    TabID m_activeTab = TabID::Process;
+    TabID m_activeTab = TabID::None;
+    std::future<void> m_sigScanFuture;
     std::vector<uintptr_t> m_hexHistory;
     int m_historyIndex = -1;
 

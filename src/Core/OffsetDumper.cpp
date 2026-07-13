@@ -15,10 +15,10 @@ std::vector<OffsetResult> OffsetDumper::DumpModule(const std::string& moduleName
 
     if (mod.baseAddress == 0) return results;
 
-    results.push_back({ 0, moduleName, "Base", "uintptr_t", "" });
+    results.push_back({ 0, moduleName, "Base", "uintptr_t", "", "" });
 
     for (const auto& section : mod.sections) {
-        results.push_back({ section.virtualAddress - mod.baseAddress, moduleName, section.name, "Section", "" });
+        results.push_back({ section.virtualAddress - mod.baseAddress, moduleName, section.name, "Section", "", "" });
     }
 
     return results;
@@ -51,7 +51,8 @@ std::vector<OffsetResult> OffsetDumper::AnalyzeDataSections(const std::string& m
                             moduleName,
                             section.name + "+" + Utils::ToHex(i),
                             "Pointer",
-                            targetMod.name + "+" + Utils::ToHex(value - targetMod.baseAddress)
+                            targetMod.name + "+" + Utils::ToHex(value - targetMod.baseAddress),
+                            ""
                         });
                         break;
                     }
@@ -72,7 +73,7 @@ std::vector<OffsetResult> OffsetDumper::DumpRange(uintptr_t start, uintptr_t end
 
     for (uintptr_t addr = start; addr < end; addr += typeSize) {
         std::string val = FormatValue(addr, type);
-        results.push_back({ addr - start, "", "offset_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << (addr - start))).str(), type, val });
+        results.push_back({ addr - start, "", "offset_" + (static_cast<std::ostringstream&&>(std::ostringstream() << std::hex << (addr - start))).str(), type, val, "" });
     }
     return results;
 }
@@ -92,7 +93,7 @@ std::vector<OffsetResult> OffsetDumper::DumpStructure(uintptr_t baseAddress, con
             std::string value = FormatValue(fieldAddr, field.type);
             std::string name = field.name;
             if (count > 1) name += "[" + std::to_string(i) + "]";
-            results.push_back({ (size_t)(fieldAddr - baseAddress), "", name, field.type, value });
+            results.push_back({ (size_t)(fieldAddr - baseAddress), "", name, field.type, value, "" });
         }
     }
 
