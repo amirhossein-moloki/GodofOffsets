@@ -1,4 +1,5 @@
 #include "Core/Scanner.h"
+#include "Utils/ThreadPool.h"
 #include <immintrin.h>
 #include <fstream>
 #include <sstream>
@@ -159,14 +160,13 @@ std::vector<Signature> Scanner::LoadSignatures(const std::string& filename) {
 }
 
 void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
+    unsigned int numThreads = std::thread::hardware_concurrency();
+    if (numThreads == 0) numThreads = 1;
+    Utils::ThreadPool pool(numThreads);
     std::vector<std::future<void>> futures;
 
     for (auto& sig : sigs) {
-        if (isVulkan && sig.moduleName == "RainbowSix.exe") {
-            sig.moduleName = "RainbowSix_Vulkan.exe";
-        }
-
-        futures.push_back(std::async(std::launch::async, [this, &sig]() {
+        futures.push_back(pool.Enqueue([this, &sig]() {
             uintptr_t addr = FindPattern(sig.moduleName, sig.pattern);
             if (addr) {
                 addr += sig.offset;
@@ -179,7 +179,7 @@ void Scanner::Run(std::vector<Signature>& sigs, bool isVulkan) {
         }));
     }
 
-    for (auto& f : futures) f.wait();
+    for (auto& f : futures) f.get();
 }
 
 } // namespace Core
