@@ -76,62 +76,33 @@ void AppUI::Render() {
     // Handle Global Keyboard Shortcuts
     auto& io = ImGui::GetIO();
     if (io.KeyAlt) {
-        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_activeTab = TabID::Process;
-        if (ImGui::IsKeyPressed(ImGuiKey_M) && m_isAttached) m_activeTab = TabID::MemoryScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && m_isAttached) m_activeTab = TabID::SignatureScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_T) && m_isAttached) m_activeTab = TabID::PointerScanner;
-        if (ImGui::IsKeyPressed(ImGuiKey_D) && m_isAttached) m_activeTab = TabID::Dumper;
-        if (ImGui::IsKeyPressed(ImGuiKey_H) && m_isAttached) m_activeTab = TabID::HexViewer;
-        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_activeTab = TabID::ActivityLog;
+        if (ImGui::IsKeyPressed(ImGuiKey_P)) m_showProcessWindow = !m_showProcessWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_M)) m_showScannerWindow = !m_showScannerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_S)) m_showSignatureWindow = !m_showSignatureWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_T)) m_showPointerWindow = !m_showPointerWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_D)) m_showDumperWindow = !m_showDumperWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_H)) m_showHexWindow = !m_showHexWindow;
+        if (ImGui::IsKeyPressed(ImGuiKey_G)) m_showLogWindow = !m_showLogWindow;
     }
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-    ImGui::Begin("Universal Offset Dumper", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    // Main DockSpace
+    ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
-    RenderHeader();
-    ImGui::Separator();
-
-    if (ImGui::BeginTabBar("MainTabs", ImGuiTabBarFlags_None)) {
-        ImGuiTabItemFlags flags = 0;
-        if (m_activeTab == TabID::Process) flags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem("[P] Process", nullptr, flags)) {
-            RenderProcessTab();
-            ImGui::EndTabItem();
-            m_activeTab = TabID::None;
-        }
-
-        auto RenderTab = [&](const char* name, TabID index, auto func) {
-            bool attached = m_isAttached;
-            if (!attached && index != TabID::ActivityLog) ImGui::BeginDisabled();
-
-            ImGuiTabItemFlags t_flags = 0;
-            if (m_activeTab == index) t_flags |= ImGuiTabItemFlags_SetSelected;
-
-            if (ImGui::BeginTabItem(name, nullptr, t_flags)) {
-                func();
-                ImGui::EndTabItem();
-                m_activeTab = TabID::None;
-            }
-            if (!attached) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Attachment required to access this feature.");
-                }
-            }
-        };
-
-        RenderTab("[M] Memory Scanner", TabID::MemoryScanner, [&]() { RenderMemoryScannerTab(); });
-        RenderTab("[S] Signature Scanner", TabID::SignatureScanner, [&]() { RenderSignatureTab(); });
-        RenderTab("[T] Pointer Scan", TabID::PointerScanner, [&]() { RenderPointerScanTab(); });
-        RenderTab("[D] Structure Dumper", TabID::Dumper, [&]() { RenderDumperTab(); });
-        RenderTab("[H] Hex Viewer", TabID::HexViewer, [&]() { RenderHexViewerTab(); });
-        RenderTab("[G] Activity Log", TabID::ActivityLog, [&]() { RenderActivityLogTab(); });
-
-        ImGui::EndTabBar();
+    // Top Header Window
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, 60));
+    if (ImGui::Begin("Header", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+        RenderHeader();
     }
-
     ImGui::End();
+
+    // Render Independent Windows
+    if (m_showProcessWindow) RenderProcessWindow();
+    if (m_showScannerWindow) RenderMemoryScannerWindow();
+    if (m_showSignatureWindow) RenderSignatureWindow();
+    if (m_showPointerWindow) RenderPointerScanWindow();
+    if (m_showDumperWindow) RenderDumperWindow();
+    if (m_showHexWindow) RenderHexViewerWindow();
+    if (m_showLogWindow) RenderActivityLogWindow();
 }
 
 void AppUI::RenderHeader() {
@@ -209,7 +180,11 @@ void AppUI::RenderProcessPicker() {
     ImGui::EndChild();
 }
 
-void AppUI::RenderProcessTab() {
+void AppUI::RenderProcessWindow() {
+    if (!ImGui::Begin("[P] Process", &m_showProcessWindow)) {
+        ImGui::End();
+        return;
+    }
     ImGui::Columns(2, "proc_cols", false);
     ImGui::SetColumnWidth(0, 450);
 
@@ -326,9 +301,21 @@ void AppUI::RenderProcessTab() {
             ImGui::EndChild();
         }
     }
+    ImGui::End();
 }
 
-void AppUI::RenderMemoryScannerTab() {
+void AppUI::RenderMemoryScannerWindow() {
+    if (!ImGui::Begin("[M] Memory Scanner", &m_showScannerWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!m_isAttached) {
+        RenderEmptyState("No process attached.", "Please attach to a process in the Process tab first.");
+        ImGui::End();
+        return;
+    }
+
     const char* dataTypes[] = { "Int8", "Uint8", "Int16", "Uint16", "Int32", "Uint32", "Int64", "Uint64", "Float", "Double", "String", "AOB" };
     int currentDataType = (int)m_selectedDataType;
     if (ImGui::Combo("Data Type", &currentDataType, dataTypes, 12)) {
@@ -517,6 +504,7 @@ void AppUI::RenderMemoryScannerTab() {
         }
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 Core::ScanValue AppUI::GetCurrentScanValue() {
@@ -561,7 +549,18 @@ Core::ScanValue AppUI::GetCurrentScanValue() {
     return sv;
 }
 
-void AppUI::RenderSignatureTab() {
+void AppUI::RenderSignatureWindow() {
+    if (!ImGui::Begin("[S] Signature Scanner", &m_showSignatureWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!m_isAttached) {
+        RenderEmptyState("No process attached.", "Please attach to a process in the Process tab first.");
+        ImGui::End();
+        return;
+    }
+
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35))) {
         AddLog("Starting signature scan...", LogSeverity::Info);
@@ -668,9 +667,21 @@ void AppUI::RenderSignatureTab() {
         }
         ImGui::EndTable();
     }
+    ImGui::End();
 }
 
-void AppUI::RenderPointerScanTab() {
+void AppUI::RenderPointerScanWindow() {
+    if (!ImGui::Begin("[T] Pointer Scan", &m_showPointerWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!m_isAttached) {
+        RenderEmptyState("No process attached.", "Please attach to a process in the Process tab first.");
+        ImGui::End();
+        return;
+    }
+
     static char targetAddrStr[32] = "";
     ImGui::InputText("Target Address", targetAddrStr, sizeof(targetAddrStr));
     ImGui::InputInt("Max Depth", &m_ptrDepth);
@@ -741,9 +752,21 @@ void AppUI::RenderPointerScanTab() {
         }
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
-void AppUI::RenderDumperTab() {
+void AppUI::RenderDumperWindow() {
+    if (!ImGui::Begin("[D] Structure Dumper", &m_showDumperWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!m_isAttached) {
+        RenderEmptyState("No process attached.", "Please attach to a process in the Process tab first.");
+        ImGui::End();
+        return;
+    }
+
     if (ImGui::CollapsingHeader("Structure Dumper", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::InputScalar("Base Address", ImGuiDataType_U64, &m_structBase, nullptr, nullptr, "%llX", ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::InputText("Struct Name", m_structName, sizeof(m_structName), ImGuiInputTextFlags_EnterReturnsTrue);
@@ -845,7 +868,10 @@ void AppUI::RenderDumperTab() {
     }
 
     if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
-    static char targetModule[64] = "RainbowSix.exe";
+    static char targetModule[64] = "";
+    if (targetModule[0] == '\0' && m_isAttached) {
+        strncpy(targetModule, m_processName, sizeof(targetModule) - 1);
+    }
     ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
@@ -891,6 +917,7 @@ void AppUI::RenderDumperTab() {
             AddLog("Changes saved to JSON.", LogSeverity::Success);
         }
     }
+    ImGui::End();
 }
 
 void AppUI::RenderEmptyState(const char* message, const char* suggestion) {
@@ -941,10 +968,22 @@ void AppUI::JumpToHex(uintptr_t addr) {
         m_historyIndex = (int)m_hexHistory.size() - 1;
     }
 
-    m_activeTab = TabID::HexViewer;
+    m_showHexWindow = true;
+    ImGui::SetWindowFocus("[H] Hex Viewer");
 }
 
-void AppUI::RenderHexViewerTab() {
+void AppUI::RenderHexViewerWindow() {
+    if (!ImGui::Begin("[H] Hex Viewer", &m_showHexWindow)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!m_isAttached) {
+        RenderEmptyState("No process attached.", "Please attach to a process in the Process tab first.");
+        ImGui::End();
+        return;
+    }
+
     // Navigation History
     ImGui::BeginGroup();
     if (ImGui::Button("<", ImVec2(30, 0)) && m_historyIndex > 0) {
@@ -1041,6 +1080,7 @@ void AppUI::RenderHexViewerTab() {
         }
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 void AppUI::AddLog(const std::string& message, LogSeverity severity) {
@@ -1063,7 +1103,12 @@ void AppUI::AddLog(const std::string& message, LogSeverity severity) {
     if (m_activityLog.size() > 1000) m_activityLog.pop_front();
 }
 
-void AppUI::RenderActivityLogTab() {
+void AppUI::RenderActivityLogWindow() {
+    if (!ImGui::Begin("[G] Activity Log", &m_showLogWindow)) {
+        ImGui::End();
+        return;
+    }
+
     if (ImGui::Button("Clear Log")) {
         std::lock_guard<std::mutex> lock(m_logMutex);
         m_activityLog.clear();
@@ -1107,6 +1152,7 @@ void AppUI::RenderActivityLogTab() {
 
         ImGui::EndChild();
     }
+    ImGui::End();
 }
 
 void AppUI::ExportToHeader() {
