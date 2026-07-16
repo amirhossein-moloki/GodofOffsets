@@ -53,7 +53,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(${PROJECT_NAME} PRIVATE Zydis)
 
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX2)
+    target_compile_options(${PROJECT_NAME} PRIVATE /arch:AVX2 /MT)
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE -mavx2)
 endif()
