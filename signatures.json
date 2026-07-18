@@ -1,52 +1,36 @@
 {
     "signatures": [
         {
-            "name": "GameManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 08 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "MinesweeperTimer",
+            "pattern": "FF 05 ? ? ? ? 85 C0 74 05",
+            "module": "winmine.exe",
+            "offset": 2,
             "relative": true,
-            "description": "Main GameManager pointer (RIP-relative)"
+            "description": "Pointer to Minesweeper's active timer counter (RIP-relative)"
         },
         {
-            "name": "EntityList",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 90 ? ? ? ? 48 8B D8",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "MinesweeperBoard",
+            "pattern": "48 8B 05 ? ? ? ? 48 8D 48 10",
+            "module": "winmine.exe",
+            "offset": 3,
             "relative": true,
-            "description": "Global Entity List pointer"
+            "description": "Base pointer to the playing grid board array"
         },
         {
-            "name": "NetworkManager",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B D7 FF 50 30",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "MineCount",
+            "pattern": "8B 15 ? ? ? ? 89 10 90",
+            "module": "winmine.exe",
+            "offset": 2,
             "relative": true,
-            "description": "NetworkManager for player info"
+            "description": "Pointer to total remaining mines"
         },
         {
-            "name": "RenderView",
-            "pattern": "48 8B 0D ? ? ? ? 48 8B 01 FF 50 18 48 8B C8",
-            "module": "RainbowSix.exe",
-            "offset": 0,
+            "name": "GameStatus",
+            "pattern": "C7 05 ? ? ? ? 01 00 00 00",
+            "module": "winmine.exe",
+            "offset": 2,
             "relative": true,
-            "description": "RenderView for FOV/Camera"
-        },
-        {
-            "name": "ProfileManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 70 48 85 C9 74 0F",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "ProfileManager for local player"
-        },
-        {
-            "name": "RoundManager",
-            "pattern": "48 8B 05 ? ? ? ? 48 8B 48 18 48 85 C9 74 07",
-            "module": "RainbowSix.exe",
-            "offset": 0,
-            "relative": true,
-            "description": "Round states and timers"
+            "description": "Active game status state (RIP-relative)"
         }
     ]
 }
