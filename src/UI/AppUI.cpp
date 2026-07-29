@@ -148,11 +148,13 @@ void AppUI::RenderHeader() {
 
     ImGui::SameLine(ImGui::GetWindowWidth() - 450);
 
-    if (m_memScanner.IsScanning() || m_ptrScanner.IsScanning()) {
+    if (m_memScanner.IsScanning() || m_ptrScanner.IsScanning() || m_sigScanActive) {
         bool isMem = m_memScanner.IsScanning();
-        ImGui::Text("%s:", isMem ? "Mem Scan" : "Ptr Scan");
+        bool isPtr = m_ptrScanner.IsScanning();
+        ImGui::Text("%s:", isMem ? "Mem Scan" : (isPtr ? "Ptr Scan" : "Sig Scan"));
         ImGui::SameLine();
-        ImGui::ProgressBar(isMem ? m_memScanner.GetProgress() : m_ptrScanner.GetProgress(), ImVec2(150, 0));
+        float progress = isMem ? m_memScanner.GetProgress() : (isPtr ? m_ptrScanner.GetProgress() : 0.5f);
+        ImGui::ProgressBar(progress, ImVec2(150, 0));
         ImGui::SameLine();
     }
 
@@ -242,6 +244,8 @@ void AppUI::RenderProcessTab() {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Standard)) {
             m_isAttached = true;
             AddToRecentProcesses(m_processName);
+            strncpy(m_dumperModuleName, m_processName, sizeof(m_dumperModuleName) - 1);
+            m_dumperModuleName[sizeof(m_dumperModuleName) - 1] = '\0';
 
             PushStatusColor("Attached (Standard)");
             AddLog("Successfully attached to " + std::string(m_processName) + " (Standard Mode)", LogSeverity::Success);
@@ -264,6 +268,8 @@ void AppUI::RenderProcessTab() {
         if (m_pm.Attach(m_processName, Core::MemoryMode::Stealth)) {
             m_isAttached = true;
             AddToRecentProcesses(m_processName);
+            strncpy(m_dumperModuleName, m_processName, sizeof(m_dumperModuleName) - 1);
+            m_dumperModuleName[sizeof(m_dumperModuleName) - 1] = '\0';
 
             PushStatusColor("Attached (Stealth Mode)");
             AddLog("Successfully attached to " + std::string(m_processName) + " (Stealth Mode)", LogSeverity::Success);
@@ -563,14 +569,20 @@ Core::ScanValue AppUI::GetCurrentScanValue() {
 
 void AppUI::RenderSignatureTab() {
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
-    if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35))) {
+    if (m_sigScanActive) ImGui::BeginDisabled();
+    if (ImGui::Button("Run Signatures Scan", ImVec2(200, 35)) && !m_sigScanActive) {
         AddLog("Starting signature scan...", LogSeverity::Info);
-        m_status = "Scanning...";
+        PushStatusColor("Scanning...");
+        m_sigScanActive = true;
         bool isVulkan = (std::string(m_processName).find("Vulkan") != std::string::npos);
-        m_scanner.Run(m_sigs, isVulkan);
-        m_status = "Scan Complete";
-        AddLog("Signature scan complete.", LogSeverity::Success);
+        m_sigScanFuture = std::async(std::launch::async, [this, isVulkan]() {
+            m_scanner.Run(m_sigs, isVulkan);
+            m_sigScanActive = false;
+            PushStatusColor("Scan Complete", true);
+            AddLog("Signature scan complete.", LogSeverity::Success);
+        });
     }
+    if (m_sigScanActive) ImGui::EndDisabled();
     ImGui::PopStyleColor();
     ImGui::SameLine();
     if (ImGui::Button("Export offsets.h", ImVec2(150, 0))) {
@@ -731,6 +743,21 @@ void AppUI::RenderPointerScanTab() {
                                     AddLog("Copied pointer chain to clipboard.", LogSeverity::Info);
                                 }
                                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to copy full chain");
+
+                                if (ImGui::BeginPopupContextItem()) {
+                                    if (ImGui::MenuItem("Jump to Base in Hex Viewer")) {
+                                        uintptr_t baseAbs = chain.baseAddress;
+                                        if (!chain.offsets.empty()) {
+                                            baseAbs += chain.offsets[0];
+                                        }
+                                        JumpToHex(baseAbs);
+                                    }
+                                    if (ImGui::MenuItem("Copy Chain")) {
+                                        ImGui::SetClipboardText(chainStr.c_str());
+                                        AddLog("Copied pointer chain to clipboard.", LogSeverity::Info);
+                                    }
+                                    ImGui::EndPopup();
+                                }
                             }
                             ImGui::TreePop();
                         }
@@ -845,13 +872,16 @@ void AppUI::RenderDumperTab() {
     }
 
     if (ImGui::CollapsingHeader("Automated Data Section Analysis")) {
-    static char targetModule[64] = "RainbowSix.exe";
-    ImGui::InputText("Module Name##Dumper", targetModule, sizeof(targetModule), ImGuiInputTextFlags_EnterReturnsTrue);
+    if (m_dumperModuleName[0] == '\0' && m_isAttached) {
+        strncpy(m_dumperModuleName, m_processName, sizeof(m_dumperModuleName) - 1);
+        m_dumperModuleName[sizeof(m_dumperModuleName) - 1] = '\0';
+    }
+    ImGui::InputText("Module Name##Dumper", m_dumperModuleName, sizeof(m_dumperModuleName), ImGuiInputTextFlags_EnterReturnsTrue);
 
     ImGui::PushStyleColor(ImGuiCol_Button, m_primaryColor);
     if (ImGui::Button("Analyze Data Sections", ImVec2(200, 35))) {
-        AddLog("Analyzing data sections for module: " + std::string(targetModule), LogSeverity::Info);
-        m_dumpedResults = m_dumper.AnalyzeDataSections(targetModule);
+        AddLog("Analyzing data sections for module: " + std::string(m_dumperModuleName), LogSeverity::Info);
+        m_dumpedResults = m_dumper.AnalyzeDataSections(m_dumperModuleName);
         m_dumper.SaveToJSON("data_analysis.json", m_dumpedResults);
         m_status = "Analysis complete. Results in data_analysis.json";
         AddLog("Data section analysis complete. Found " + std::to_string(m_dumpedResults.size()) + " potential pointers.", LogSeverity::Success);
@@ -871,7 +901,31 @@ void AppUI::RenderDumperTab() {
             for (size_t i = 0; i < m_dumpedResults.size(); ++i) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("%s", m_dumpedResults[i].name.c_str());
+
+                bool selected = false;
+                if (ImGui::Selectable((m_dumpedResults[i].name + "##row" + std::to_string(i)).c_str(), &selected, ImGuiSelectableFlags_SpanAllColumns)) {
+                    // Span all columns
+                }
+
+                if (ImGui::BeginPopupContextItem()) {
+                    if (ImGui::MenuItem("Jump to in Hex Viewer")) {
+                        uintptr_t absAddr = 0;
+                        if (!m_dumpedResults[i].moduleName.empty()) {
+                            absAddr = m_pm.GetModuleBase(m_dumpedResults[i].moduleName) + m_dumpedResults[i].offset;
+                        } else if (m_dumpedResults[i].name.rfind("offset_", 0) == 0) {
+                            absAddr = m_rangeStart + m_dumpedResults[i].offset;
+                        } else {
+                            absAddr = m_structBase + m_dumpedResults[i].offset;
+                        }
+                        JumpToHex(absAddr);
+                    }
+                    if (ImGui::MenuItem("Copy Offset")) {
+                        char buf[32]; sprintf(buf, "0x%llX", (unsigned long long)m_dumpedResults[i].offset);
+                        ImGui::SetClipboardText(buf);
+                    }
+                    ImGui::EndPopup();
+                }
+
                 ImGui::TableSetColumnIndex(1);
                 ImGui::Text("0x%llX", (unsigned long long)m_dumpedResults[i].offset);
                 ImGui::TableSetColumnIndex(2);
@@ -1018,10 +1072,58 @@ void AppUI::RenderHexViewerTab() {
 
                 for (int j = 0; j < 16; ++j) {
                     uint8_t b = buffer[i * 16 + j];
-                    if (b == 0) ImGui::TextDisabled("00 ");
-                    else if (b >= 32 && b <= 126) ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%02X ", b);
-                    else if (b == 0xFF) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%02X ", b);
-                    else ImGui::Text("%02X ", b);
+                    uintptr_t currentByteAddr = m_hexBase + i * 16 + j;
+                    char byteLabel[16];
+                    sprintf(byteLabel, "%02X", b);
+
+                    ImGui::PushID((int)(i * 16 + j));
+
+                    bool isSelected = (m_hexEditAddr == currentByteAddr);
+
+                    if (b == 0) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+                    else if (b >= 32 && b <= 126) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 1.0f, 0.4f, 1.0f));
+                    else if (b == 0xFF) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                    else ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_Text]);
+
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f, 1.0f));
+                    if (ImGui::Selectable(byteLabel, isSelected, 0, ImVec2(ImGui::CalcTextSize("FF ").x, 0))) {
+                        m_hexEditAddr = currentByteAddr;
+                    }
+                    ImGui::PopStyleVar();
+                    ImGui::PopStyleColor();
+
+                    if (ImGui::BeginPopupContextItem("EditBytePopup", ImGuiPopupFlags_MouseButtonRight)) {
+                        m_hexEditAddr = currentByteAddr;
+                        if (ImGui::IsWindowAppearing()) {
+                            snprintf(m_hexEditBuf, sizeof(m_hexEditBuf), "%02X", b);
+                        }
+
+                        ImGui::Text("Edit Byte at 0x%llX", (unsigned long long)currentByteAddr);
+                        ImGui::Separator();
+                        ImGui::InputText("Hex Value", m_hexEditBuf, sizeof(m_hexEditBuf), ImGuiInputTextFlags_CharsHexadecimal);
+
+                        if (ImGui::Button("Write", ImVec2(120, 0))) {
+                            try {
+                                unsigned long val = std::stoul(m_hexEditBuf, nullptr, 16);
+                                if (val <= 0xFF) {
+                                    uint8_t byteVal = (uint8_t)val;
+                                    if (m_pm.WriteMemory(currentByteAddr, &byteVal, 1)) {
+                                        AddLog("Wrote byte 0x" + std::string(m_hexEditBuf) + " to 0x" + Utils::ToHex(currentByteAddr), LogSeverity::Success);
+                                    } else {
+                                        AddLog("Failed to write byte to 0x" + Utils::ToHex(currentByteAddr), LogSeverity::Error);
+                                    }
+                                } else {
+                                    AddLog("Invalid byte value (must be 00-FF)", LogSeverity::Error);
+                                }
+                            } catch (const std::exception& e) {
+                                AddLog("Exception writing byte: " + std::string(e.what()), LogSeverity::Error);
+                            }
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    ImGui::PopID();
                     ImGui::SameLine();
                 }
 

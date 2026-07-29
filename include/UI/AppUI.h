@@ -82,6 +82,7 @@ private:
     size_t m_structSize = 0;
     std::vector<Core::StructField> m_structFields;
     std::vector<Core::OffsetResult> m_dumpedResults;
+    char m_dumperModuleName[64] = "";
 
     // Range Dump UI
     uintptr_t m_rangeStart = 0;
@@ -94,8 +95,14 @@ private:
     TabID m_activeTab = TabID::Process;
     std::vector<uintptr_t> m_hexHistory;
     int m_historyIndex = -1;
+    uintptr_t m_hexEditAddr = 0;
+    char m_hexEditBuf[8] = "";
 
     bool m_showDisclaimer = true;
+
+    // Signature Scan Async State
+    std::future<void> m_sigScanFuture;
+    bool m_sigScanActive = false;
 
     // Activity Log
     std::deque<LogEntry> m_activityLog;
