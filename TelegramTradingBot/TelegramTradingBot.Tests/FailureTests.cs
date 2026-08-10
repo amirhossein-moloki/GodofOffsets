@@ -101,11 +101,11 @@ namespace TelegramTradingBot.Tests
 
             var metadata = new Dictionary<string, string>
             {
-                { "ApiKey", "super_secret_bybit_api_key_123" },
-                { "ApiSecret", "very_secret_bybit_api_secret_456" },
-                { "TelegramToken", "bot123456:ABC-defTelegramToken" },
-                { "Authorization", "Bearer token_abc123" },
-                { "Signature", "sha256_sig_987" },
+                { "ApiKey", "mock_key_abc_xyz" },
+                { "ApiSecret", "mock_secret_123_456" },
+                { "TelegramToken", "mock_token_789_012" },
+                { "Authorization", "mock_auth_value" },
+                { "Signature", "mock_sig_value" },
                 { "OperationId", "Op-111" }
             };
 
@@ -114,11 +114,11 @@ namespace TelegramTradingBot.Tests
             var loggedEvents = _monitoring.GetEmittedEvents();
             foreach (var log in loggedEvents)
             {
-                Assert.DoesNotContain("super_secret_bybit_api_key_123", log);
-                Assert.DoesNotContain("very_secret_bybit_api_secret_456", log);
-                Assert.DoesNotContain("bot123456:ABC-defTelegramToken", log);
-                Assert.DoesNotContain("Bearer token_abc123", log);
-                Assert.DoesNotContain("sha256_sig_987", log);
+                Assert.DoesNotContain("mock_key_abc_xyz", log);
+                Assert.DoesNotContain("mock_secret_123_456", log);
+                Assert.DoesNotContain("mock_token_789_012", log);
+                Assert.DoesNotContain("mock_auth_value", log);
+                Assert.DoesNotContain("mock_sig_value", log);
 
                 // Confirm redaction
                 Assert.Contains("ApiKey=[REDACTED]", log);
