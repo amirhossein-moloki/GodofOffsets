@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="TelegramTradingBot.Core/TelegramTradingBot.Core.csproj" />
+  <Project Path="TelegramTradingBot.Infrastructure/TelegramTradingBot.Infrastructure.csproj" />
+  <Project Path="TelegramTradingBot.Tests/TelegramTradingBot.Tests.csproj" />
+</Solution>

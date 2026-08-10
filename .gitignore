@@ -21,3 +21,7 @@ CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
+
+# .NET Build Artifacts
+**/bin/
+**/obj/
