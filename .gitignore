@@ -1,4 +1,5 @@
 build/
+build-linux/
 !build/
 !build/Release/
 !build/Release/UniversalOffsetDumper.exe
